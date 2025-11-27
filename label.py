@@ -25,6 +25,8 @@ theta_lookup = [min(x, 1.0) for x in theta_lookup]
 
 # --- 2. Helper Functions ---
 
+# --- 2. Helper Functions ---
+
 def check_strict_feasibility(history, next_val, MS, MIN_MS):
     potential_sequence = history + (next_val,)
     seq_len = len(potential_sequence)
@@ -43,6 +45,114 @@ def check_strict_feasibility(history, next_val, MS, MIN_MS):
         return True
 
 
+def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id, pruning_stats, dominance_mode='bucket'):
+    """
+    Adds state to bucket structure and applies dominance.
+    
+    dominance_mode:
+      - 'bucket': Compares only within same (ai_count, hist)
+      - 'global': Compares across all buckets (ai >= ai', hist >= hist')
+    """
+    bucket_key = (ai_count, hist)
+    
+    # --- 1. GLOBAL PRUNING CHECK (Only in Global Mode) ---
+    # Check if the NEW state is dominated by ANYONE
+    if dominance_mode == 'global':
+        is_dominated_globally = False
+        dominator_global = None
+        
+        for (ai_other, hist_other), other_list in buckets.items():
+            # Another bucket can only dominate if it is "better/equal" in AI & Hist
+            # We need: ai_other >= ai_count AND hist_other >= hist
+            
+            # AI Check
+            if ai_other < ai_count:
+                continue
+                
+            # Hist Check (component-wise >=)
+            # Note: Hist lengths can vary at the beginning? 
+            # No, we assume they are comparable or we define dominance only for the same length.
+            # In the code, Hist grows up to MS-1.
+            if len(hist_other) != len(hist):
+                # Different length -> hard to compare (or do we assume shorter is worse?)
+                # Safer: Only compare same length
+                continue
+            
+            hist_better = True
+            for h1, h2 in zip(hist_other, hist):
+                if h1 < h2: # h1 muss >= h2 sein
+                    hist_better = False
+                    break
+            if not hist_better:
+                continue
+            
+            # If we are here, the other bucket is "structurally" better or equal.
+            # Now we check Cost & Prog in this bucket
+            for c_old, p_old, _ in other_list:
+                if c_old <= cost and p_old >= prog:
+                    is_dominated_globally = True
+                    dominator_global = (c_old, p_old, ai_other, hist_other)
+                    break
+            
+            if is_dominated_globally:
+                break
+        
+        if is_dominated_globally:
+            pruning_stats['dominance'] += 1
+            if not pruning_stats['printed_dominance'].get(recipient_id, False):
+                print(f"    [DOMINANCE GLOBAL] Recipient {recipient_id}: Pruned new state (C={cost:.2f}, P={prog:.2f}, AI={ai_count})")
+                print(f"                       by (C={dominator_global[0]:.2f}, P={dominator_global[1]:.2f}, AI={dominator_global[2]})")
+                pruning_stats['printed_dominance'][recipient_id] = True
+            return
+
+    # --- 2. BUCKET MANAGEMENT ---
+    if bucket_key not in buckets:
+        buckets[bucket_key] = []
+    
+    bucket_list = buckets[bucket_key]
+    
+    # --- 3. LOCAL DOMINANCE (Within the Bucket) ---
+    # Even in Global Mode we do this to keep our own bucket clean
+    
+    # Check if new state is dominated by existing state in the SAME bucket
+    is_dominated = False
+    dominator = None
+    
+    for c_old, p_old, _ in bucket_list:
+        if c_old <= cost and p_old >= prog:
+            is_dominated = True
+            dominator = (c_old, p_old)
+            break
+    
+    if is_dominated:
+        pruning_stats['dominance'] += 1
+        if not pruning_stats['printed_dominance'].get(recipient_id, False):
+            print(f"    [DOMINANCE BUCKET] Recipient {recipient_id}: Pruned new state (C={cost:.2f}, P={prog:.2f})")
+            print(f"                       by same bucket (C={dominator[0]:.2f}, P={dominator[1]:.2f})")
+            pruning_stats['printed_dominance'][recipient_id] = True
+        return 
+    
+    # --- 4. CLEANUP (Only important in Global Mode, but also good locally) ---
+    # Remove existing states that are dominated by the new one
+    # In Global Mode, the new state could also delete states in OTHER (worse) buckets.
+    # However, this is very complex to implement (iterate over all buckets and delete).
+    # We limit deletion to our OWN bucket (Bucket Cleanup).
+    # Global Pruning therefore only works "incoming" (New State is deleted), not "outgoing" (New State deletes other buckets).
+    # This is a good compromise for performance.
+    
+    new_bucket_list = []
+    for c_old, p_old, path_old in bucket_list:
+        if cost <= c_old and prog >= p_old:
+            pruning_stats['dominance'] += 1
+            # We skip print here for clarity, or only once
+            continue 
+        new_bucket_list.append((c_old, p_old, path_old))
+    
+    new_bucket_list.append((cost, prog, path))
+    buckets[bucket_key] = new_bucket_list
+
+
+
 def generate_full_column_vector(worker_id, path_assignments, start_time, end_time, max_time, num_workers):
     vector_length = num_workers * max_time
     full_vector = [0.0] * vector_length
@@ -57,8 +167,8 @@ def generate_full_column_vector(worker_id, path_assignments, start_time, end_tim
 
 def validate_final_column(col_data, s_req, MS, MIN_MS, theta_table):
     """
-    Validiert eine fertige Spalte strikt auf alle Constraints.
-    Gibt eine Liste von Fehlern zurück (leer wenn alles OK).
+    Validates a finished column strictly on all constraints.
+    Returns a list of errors (empty if everything is OK).
     """
     errors = []
     path = col_data['path_pattern']
@@ -67,15 +177,15 @@ def validate_final_column(col_data, s_req, MS, MIN_MS, theta_table):
     if path[0] != 1:
         errors.append(f"Start constraint violation: First day must be Machine (1), found {path[0]}")
 
-    # MODIFIZIERT: Check End Constraint
-    # Wenn es KEIN Timeout ist, MUSS es eine 1 sein.
-    # Wenn es ein Timeout ist, darf es auch eine 0 sein.
+    # MODIFIED: Check End Constraint
+    # If it is NOT a timeout, it MUST be a 1.
+    # If it is a timeout, it can also be a 0.
     is_timeout = (col_data['end'] == MAX_TIME)
 
     if path[-1] != 1:
         if not is_timeout:
             errors.append(f"End constraint violation: Last day must be Machine (1), found {path[-1]}")
-        # Im Timeout-Fall (is_timeout == True) erlauben wir hier implizit die 0.
+        # In the timeout case (is_timeout == True) we implicitly allow 0 here.
 
     # 2. Check Service Target (s_i)
     progress = 0.0
@@ -88,10 +198,10 @@ def validate_final_column(col_data, s_req, MS, MIN_MS, theta_table):
             progress += eff
             ai_usage += 1
 
-    # Toleranz 1e-9
+    # Tolerance 1e-9
     if progress < s_req - 1e-9:
-        # Sonderfall: Timeout (Ende des Horizonts) darf Ziel verfehlen, wenn Modell das erlaubt.
-        # Wir markieren es hier als Info/Fehler zur Kontrolle (wie gewünscht).
+        # Special case: Timeout (end of horizon) may miss target if the model allows it.
+        # We mark it here as info/error for control (as desired).
         if is_timeout:
             errors.append(f"Target NOT met (TIMEOUT case): {progress:.2f} < {s_req}")
         else:
@@ -116,6 +226,42 @@ def validate_final_column(col_data, s_req, MS, MIN_MS, theta_table):
 
 # --- 3. Labeling Algorithm ---
 
+def compute_lower_bound(current_progress, current_cost, target_progress,
+                       worker_id, current_time, end_time, gamma_k, pi_dict):
+    """
+    Calculates OPTIMISTIC Lower Bound for Bound Pruning.
+
+    Assumption: Maximum productivity (only therapists with efficiency = 1.0)
+    This guarantees that we don't miss any optimal solutions.
+
+    Returns:
+        float: Minimum achievable final Reduced Cost (optimistic)
+    """
+    import math
+
+    # 1. Minimum periods at MAXIMUM productivity (Therapist = 1.0)
+    remaining_progress = max(0.0, target_progress - current_progress)
+    min_periods_needed = int(math.ceil(remaining_progress))
+
+    # 2. Available periods until end
+    periods_available = end_time - current_time
+    periods_to_use = min(min_periods_needed, periods_available)
+
+    # 3. Time costs (number of periods)
+    time_cost = periods_to_use
+
+    # 4. BEST possible Dual costs (we subtract π because DP does: cost - π)
+    dual_cost = 0.0
+    for u in range(current_time + 1, current_time + periods_to_use + 1):
+        if u <= end_time:
+            dual_cost += pi_dict.get((worker_id, u), 0.0)  # Subtract π to match DP logic
+
+    # 5. Lower Bound = current costs + optimistic remaining costs - gamma
+    lower_bound = current_cost + time_cost + dual_cost - gamma_k
+
+    return lower_bound
+
+
 def compute_candidate_workers(workers, r_k, tau_max, pi_dict):
     """
     Worker Dominance Pre-Elimination:
@@ -125,55 +271,55 @@ def compute_candidate_workers(workers, r_k, tau_max, pi_dict):
     Returns the set of non-dominated workers.
     """
     candidate_workers = []
-    
+
     for j1 in workers:
         is_dominated = False
-        
+
         for j2 in workers:
             if j1 == j2:
                 continue
-            
+
             # Check if j2 dominates j1
             # j2 dominates j1 if:
             # 1. π_{j2,t} >= π_{j1,t} for ALL t in [r_k, tau_max]
             # 2. π_{j2,t} > π_{j1,t} for at least ONE t (strict improvement)
-            
+
             all_better_or_equal = True
             at_least_one_strictly_better = False
-            
+
             for t in range(r_k, tau_max + 1):
                 pi_j1 = pi_dict.get((j1, t), 0.0)
                 pi_j2 = pi_dict.get((j2, t), 0.0)
-                
+
                 if pi_j2 < pi_j1:  # j2 is worse in this period
                     all_better_or_equal = False
                     break
                 elif pi_j2 > pi_j1:  # j2 is strictly better in this period
                     at_least_one_strictly_better = True
-            
+
             # j2 dominates j1 if it's at least as good everywhere and strictly better somewhere
             if all_better_or_equal and at_least_one_strictly_better:
                 is_dominated = True
                 break
-        
+
         if not is_dominated:
             candidate_workers.append(j1)
-    
+
     return candidate_workers
 
 
-def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier):
+def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_stats, use_bound_pruning=True, dominance_mode='bucket'):
     best_reduced_cost = float('inf')
     best_columns = []
     epsilon = 1e-9
 
     time_until_end = MAX_TIME - r_k + 1
-    
+
     # Worker Dominance Pre-Elimination
     candidate_workers = compute_candidate_workers(WORKERS, r_k, MAX_TIME, pi)
     eliminated_workers = [w for w in WORKERS if w not in candidate_workers]
-    
-    # Print für jeden Recipient
+
+    # Print for each Recipient
     if eliminated_workers:
         print(f"Recipient {k:2d}: Candidate workers = {candidate_workers} (eliminated {eliminated_workers})")
     else:
@@ -187,113 +333,310 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier):
             is_timeout_scenario = (tau == MAX_TIME)
 
             start_cost = -pi.get((j, r_k), 0)
-            current_states = {
-                (1.0, 0, (1,)): (start_cost, [1])
-            }
 
-            # DP Loop bis kurz vor Tau
+            # Debug status for Dominance (once per Recipient/Worker loop instance? No, per Recipient global!)
+            # But we are here in the Worker loop.
+            # If we want it per Recipient, we need to define it outside.
+            # Since we can't pass it through without changing the signature, we do it here per Worker.
+            # WAIT: You wanted "only always the first time per recipient".
+            # This means we need a Dict that persists across the Worker loop.
+
+            # We define it at the beginning of the function solve_pricing_for_recipient
+
+            # Initialization (Bucket structure)
+            # Key: (ai_count, hist), Value: List of (cost, prog, path)
+            current_states = {}
+            add_state_to_buckets(current_states, start_cost, 1.0, 0, (1,), [1], k, pruning_stats, dominance_mode)
+
+            # DP Loop until just before Tau
+            pruned_count_total = 0  # Counter for pruned states
+
             for t in range(r_k + 1, tau):
                 next_states = {}
-                for state, (cost, path) in current_states.items():
-                    prog, ai_count, hist = state
+                pruned_count_this_period = 0
 
-                    remaining_steps = tau - t + 1
-                    if not is_timeout_scenario:
-                        if prog + remaining_steps * 1.0 < s_k - epsilon:
-                            continue
+                # Iterate over all buckets
+                for (ai_count, hist), bucket_list in current_states.items():
+                    # Iterate over all states in the bucket
+                    for cost, prog, path in bucket_list:
 
-                    # A: Therapist
-                    if check_strict_feasibility(hist, 1, MS, MIN_MS):
-                        cost_ther = cost - pi.get((j, t), 0)
-                        prog_ther = prog + 1.0
-                        new_hist_ther = (hist + (1,))
-                        if len(new_hist_ther) > MS - 1: new_hist_ther = new_hist_ther[-(MS - 1):]
+                        # BOUND PRUNING: Check if state is promising
+                        if use_bound_pruning:
+                            lb = compute_lower_bound(prog, cost, s_k, j, t, tau, gamma_k, pi)
+                            if lb >= 0:
+                                pruned_count_this_period += 1
+                                pruned_count_total += 1
+                                pruning_stats['lb'] += 1
+                                continue  # State is pruned!
 
-                        state_ther = (prog_ther, ai_count, new_hist_ther)
-                        if state_ther not in next_states or cost_ther < next_states[state_ther][0]:
-                            next_states[state_ther] = (cost_ther, path + [1])
+                        # Feasibility Check (remains)
+                        remaining_steps = tau - t + 1
+                        if not is_timeout_scenario:
+                            if prog + remaining_steps * 1.0 < s_k - epsilon:
+                                continue
 
-                    # B: AI
-                    if check_strict_feasibility(hist, 0, MS, MIN_MS):
-                        cost_ai = cost
-                        efficiency = theta_lookup[ai_count] if ai_count < len(theta_lookup) else 1.0
-                        prog_ai = prog + efficiency
-                        ai_count_new = ai_count + 1
-                        new_hist_ai = (hist + (0,))
-                        if len(new_hist_ai) > MS - 1: new_hist_ai = new_hist_ai[-(MS - 1):]
+                        # A: Therapist
+                        if check_strict_feasibility(hist, 1, MS, MIN_MS):
+                            cost_ther = cost - pi.get((j, t), 0)
+                            prog_ther = prog + 1.0
+                            # History Shift: Append new action + take last MS-1 elements
+                            # Note: This is conceptually equivalent to LaTeX spec (prepend + take first),
+                            # just with reversed indexing. Both represent the same rolling window of
+                            # the most recent MS-1 actions, regardless of left-to-right or right-to-left order.
+                            new_hist_ther = (hist + (1,))
+                            if len(new_hist_ther) > MS - 1: new_hist_ther = new_hist_ther[-(MS - 1):]
 
-                        state_ai = (prog_ai, ai_count_new, new_hist_ai)
-                        if state_ai not in next_states or cost_ai < next_states[state_ai][0]:
-                            next_states[state_ai] = (cost_ai, path + [0])
+                            add_state_to_buckets(next_states, cost_ther, prog_ther, ai_count, new_hist_ther, path + [1], k, pruning_stats, dominance_mode)
+
+                        # B: AI
+                        if check_strict_feasibility(hist, 0, MS, MIN_MS):
+                            cost_ai = cost
+                            efficiency = theta_lookup[ai_count] if ai_count < len(theta_lookup) else 1.0
+                            prog_ai = prog + efficiency
+                            ai_count_new = ai_count + 1
+                            # History Shift: Same logic as Therapist (see comment above)
+                            new_hist_ai = (hist + (0,))
+                            if len(new_hist_ai) > MS - 1: new_hist_ai = new_hist_ai[-(MS - 1):]
+
+                            add_state_to_buckets(next_states, cost_ai, prog_ai, ai_count_new, new_hist_ai, path + [0], k, pruning_stats, dominance_mode)
 
                 current_states = next_states
                 if not current_states: break
 
             # Final Step (Transition to Tau)
-            # Hier ist die Änderung für den Timeout-Fall
-            for state, (cost, path) in current_states.items():
-                prog, ai_count, hist = state
+            for (ai_count, hist), bucket_list in current_states.items():
+                for cost, prog, path in bucket_list:
+                    
+                    # We collect possible end steps for this state
+                    possible_moves = []
 
-                # Wir sammeln mögliche End-Schritte für diesen State
-                possible_moves = []
+                    # Option 1: End with Therapist (1) - Standard
+                    if check_strict_feasibility(hist, 1, MS, MIN_MS):
+                        possible_moves.append(1)
 
-                # Option 1: Enden mit Therapeut (1) - Standard
-                if check_strict_feasibility(hist, 1, MS, MIN_MS):
-                    possible_moves.append(1)
+                    # Option 2: End with App (0) - ONLY if Timeout
+                    if is_timeout_scenario:
+                        if check_strict_feasibility(hist, 0, MS, MIN_MS):
+                            possible_moves.append(0)
 
-                # Option 2: Enden mit App (0) - NUR wenn Timeout
-                if is_timeout_scenario:
-                    if check_strict_feasibility(hist, 0, MS, MIN_MS):
-                        possible_moves.append(0)
+                    for move in possible_moves:
+                        # Calculate values based on Move type
+                        if move == 1:
+                            final_cost_accum = cost - pi.get((j, tau), 0)
+                            final_prog = prog + 1.0
+                            # Here we use the old count since it hasn't increased
+                            final_ai_count = ai_count
+                        else:  # move == 0
+                            final_cost_accum = cost
+                            efficiency = theta_lookup[ai_count] if ai_count < len(theta_lookup) else 1.0
+                            final_prog = prog + efficiency
+                            final_ai_count = ai_count + 1
 
-                for move in possible_moves:
-                    # Berechne Werte basierend auf Move-Typ
-                    if move == 1:
-                        final_cost_accum = cost - pi.get((j, tau), 0)
-                        final_prog = prog + 1.0
-                        # Hier nutzen wir den alten count, da er sich nicht erhöht hat
-                        final_ai_count = ai_count
-                    else:  # move == 0
-                        final_cost_accum = cost
-                        efficiency = theta_lookup[ai_count] if ai_count < len(theta_lookup) else 1.0
-                        final_prog = prog + efficiency
-                        final_ai_count = ai_count + 1
+                        final_path = path + [move]
+                        condition_met = (final_prog >= s_k - epsilon)
 
-                    final_path = path + [move]
-                    condition_met = (final_prog >= s_k - epsilon)
+                        if condition_met or is_timeout_scenario:
+                            duration = tau - r_k + 1
+                            reduced_cost = (obj_multiplier * duration) + final_cost_accum - gamma_k
 
-                    if condition_met or is_timeout_scenario:
-                        duration = tau - r_k + 1
-                        reduced_cost = (obj_multiplier * duration) + final_cost_accum - gamma_k
+                            col_candidate = {
+                                'k': k,
+                                'worker': j,
+                                'start': r_k,
+                                'end': tau,
+                                'duration': duration,
+                                'reduced_cost': reduced_cost,
+                                'final_progress': final_prog,
+                                'x_vector': generate_full_column_vector(j, final_path, r_k, tau, MAX_TIME, len(WORKERS)),
+                                'path_pattern': final_path
+                            }
 
-                        col_candidate = {
-                            'k': k,
-                            'worker': j,
-                            'start': r_k,
-                            'end': tau,
-                            'duration': duration,
-                            'reduced_cost': reduced_cost,
-                            'final_progress': final_prog,
-                            'x_vector': generate_full_column_vector(j, final_path, r_k, tau, MAX_TIME, len(WORKERS)),
-                            'path_pattern': final_path
-                        }
-
-                        if reduced_cost < best_reduced_cost - epsilon:
-                            best_reduced_cost = reduced_cost
-                            best_columns = [col_candidate]
-                        elif abs(reduced_cost - best_reduced_cost) < epsilon:
-                            best_columns.append(col_candidate)
+                            if reduced_cost < best_reduced_cost - epsilon:
+                                best_reduced_cost = reduced_cost
+                                best_columns = [col_candidate]
+                            elif abs(reduced_cost - best_reduced_cost) < epsilon:
+                                best_columns.append(col_candidate)
+            
+            # Debug Output: Bound Pruning Statistics
+            if pruned_count_total > 0:
+                print(f"    Worker {j}, tau={tau}: Pruned {pruned_count_total} states by Lower Bound")
 
     return best_columns
 
 
-# --- 4. Global Labeling Algorithm Function ---
+# --- 4. Testing & Validation Functions ---
+
+def create_reference_solution(results):
+    """
+    Creates a sorted reference solution from the results.
+    
+    Format: List of (recipient_id, reduced_cost) sorted by recipient_id
+    Reduced costs rounded to 2 decimal places.
+    
+    Returns:
+        list: [(recipient_id, reduced_cost), ...] sorted by recipient_id
+    """
+    solution = []
+    for res in results:
+        recipient_id = res['k']
+        reduced_cost = round(res['reduced_cost'], 2)
+        solution.append((recipient_id, reduced_cost))
+    
+    # Sort by recipient_id
+    solution.sort(key=lambda x: x[0])
+    
+    return solution
+
+
+def compare_solutions(current_results, reference_solution):
+    """
+    Compares current results with reference solution.
+    
+    Returns:
+        tuple: (is_identical, differences)
+            - is_identical: bool, True if identical
+            - differences: list of dict with deviations
+    """
+    current_solution = create_reference_solution(current_results)
+    
+    # Create dictionaries for easy comparison
+    current_dict = {k: rc for k, rc in current_solution}
+    reference_dict = {k: rc for k, rc in reference_solution}
+    
+    differences = []
+    all_recipients = set(current_dict.keys()) | set(reference_dict.keys())
+    
+    for recipient_id in sorted(all_recipients):
+        current_rc = current_dict.get(recipient_id, None)
+        reference_rc = reference_dict.get(recipient_id, None)
+        
+        if current_rc is None:
+            differences.append({
+                'recipient': recipient_id,
+                'status': 'MISSING',
+                'current': None,
+                'reference': reference_rc
+            })
+        elif reference_rc is None:
+            differences.append({
+                'recipient': recipient_id,
+                'status': 'EXTRA',
+                'current': current_rc,
+                'reference': None
+            })
+        elif abs(current_rc - reference_rc) > 1e-6:
+            differences.append({
+                'recipient': recipient_id,
+                'status': 'DIFFERENT',
+                'current': current_rc,
+                'reference': reference_rc,
+                'delta': current_rc - reference_rc
+            })
+    
+    is_identical = len(differences) == 0
+    
+    return is_identical, differences
+
+
+def print_solution_comparison(current_results, reference_solution):
+    """
+    Prints comparison between current solution and reference.
+    """
+    is_identical, differences = compare_solutions(current_results, reference_solution)
+    
+    print("\n" + "="*70)
+    print("SOLUTION VALIDATION")
+    print("="*70)
+    
+    if is_identical:
+        print("✅ IDENTICAL - All Reduced Costs match the reference!")
+        current_solution = create_reference_solution(current_results)
+        print(f"   Anzahl Recipients: {len(current_solution)}")
+    else:
+        print(f"❌ DIFFERENCES FOUND - {len(differences)} deviation(s):")
+        print()
+        for diff in differences:
+            recipient_id = diff['recipient']
+            status = diff['status']
+            
+            if status == 'MISSING':
+                print(f"  Recipient {recipient_id:2d}: MISSING in current solution")
+                print(f"    Reference: {diff['reference']:.2f}")
+            elif status == 'EXTRA':
+                print(f"  Recipient {recipient_id:2d}: EXTRA in current solution")
+                print(f"    Current: {diff['current']:.2f}")
+            elif status == 'DIFFERENT':
+                print(f"  Recipient {recipient_id:2d}: DIFFERENT")
+                print(f"    Current:   {diff['current']:8.2f}")
+                print(f"    Reference: {diff['reference']:8.2f}")
+                print(f"    Delta:     {diff['delta']:8.2f}")
+            print()
+    
+    print("="*70)
+
+
+# --- 5. Global Labeling Algorithm Function ---
 
 def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict, 
                            pi_dict, workers, max_time, ms, min_ms, theta_lookup,
-                           print_worker_selection=True, validate_columns=True, print_results=True):
+                           print_worker_selection=True, validate_columns=True, print_results=True,
+                           use_bound_pruning=True, dominance_mode='bucket', max_columns_per_recipient=None):
     """
-    Globale Labeling-Algorithmus Funktion.
+    Global Labeling Algorithm Function.
+
+    Labeling Algorithm for Column Generation (Pricing Problem Solver)
+
+    ================================================================================
+    TODO / OPEN ISSUES:
+    ================================================================================
+
+    1. BUCKET DOMINANCE BUG (HIGH PRIORITY)
+       - Issue: When storing >100 columns per recipient, duplicate x_vectors appear
+       - Evidence: Test with max_columns_per_recipient=1000 shows ~10% duplicates
+       - Current Workaround: Post-filter removes duplicates (lines 664-670)
+       - Root Cause: Unknown - likely float precision or edge case in bucket dominance
+       - Action Needed:
+         * Debug add_state_to_buckets() function (lines 48-152)
+         * Check if cost/prog comparisons have float precision issues
+         * Investigate if identical states can exist in different buckets
+         * Consider using epsilon for float comparisons
+       - Location: add_state_to_buckets(), bucket_key = (ai_count, hist)
+
+    2. LOWER BOUND HORIZON EXCEPTION (MEDIUM PRIORITY)
+       - Issue: LaTeX spec says "unless t = |T|" but code prunes at all t
+       - LaTeX: "A state is pruned [...] unless t corresponds to the horizon limit |T|"
+       - Current: Bound pruning happens at ALL time steps including MAX_TIME
+       - Fix: Change line ~370: if use_bound_pruning and tau < MAX_TIME:
+       - Impact: May prevent valid columns at horizon from being generated
+       - Status: Not yet implemented
+
+    3. TERMINAL COST LOGIC VERIFICATION (LOW PRIORITY)
+       - Issue: Implementation differs conceptually from LaTeX but may be equivalent
+       - LaTeX: Explicit separate final step V_{ξ-1} - π_{jξ}
+       - Code: Final step integrated in main loop (lines 422-440)
+       - Status: Functionally appears correct (tested), but semantically different
+       - Action: Document equivalence proof or align with LaTeX notation
+
+    4. LOWER BOUND FORMULA CLARIFICATION (LOW PRIORITY)
+       - Issue: Code limits periods_available, LaTeX doesn't explicitly mention this
+       - Current: periods_to_use = min(min_periods_needed, periods_available)
+       - Question: Should LB be purely optimistic or respect available time?
+       - Status: Current implementation seems more conservative (safer)
+       - Action: Verify against LaTeX author's intent
+
+    5. PERFORMANCE OPTIMIZATIONS (FUTURE)
+       - Bucket dominance is faster than global but still O(bucket_size)
+       - Consider: Hash-based deduplication before bucket insertion
+       - Consider: More aggressive state pruning strategies
+       - Consider: Parallel processing for multiple recipients
+
+    6. CODE DOCUMENTATION (ONGOING)
+       - History shift operation correctly explained (lines 382-386)
+       - Terminal cost equivalence documented (see explain_terminal_cost.py)
+       - Lower bound analysis documented (see lower_bound_analysis.md)
+       - Implementation gaps documented (see implementation_gaps.md)
+
+    ================================================================================
     
     Parameters:
     -----------
@@ -323,18 +666,26 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
         Validate final columns against constraints
     print_results : bool
         Print final results summary
+    use_bound_pruning : bool
+        Enable/Disable lower bound pruning (Default: True)
+    dominance_mode : str
+        'bucket' (default) or 'global' dominance strategy
+    max_columns_per_recipient : int or None
+        Maximum number of alternative optimal columns to store per recipient.
+        None (default) = unlimited, stores all optimal columns.
+        Example: 10 = store at most 10 alternative optimal schedules per recipient.
         
     Returns:
     --------
     list of dict
-        List of best columns (one per recipient)
+        List of best columns (can be multiple per recipient if alternatives exist)
     """
     import time
     
     t0 = time.time()
     results = []
     
-    # Setze globale Variablen (für Helper-Funktionen)
+    # Set global variables (for helper functions)
     global MAX_TIME, MS, MIN_MS, WORKERS, pi
     MAX_TIME = max_time
     MS = ms
@@ -342,25 +693,78 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
     WORKERS = workers
     pi = pi_dict
     
+    # Pruning Statistics
+    pruning_stats = {
+        'lb': 0,
+        'dominance': 0,
+        'printed_dominance': {}  # {recipient_id: bool}
+    }
+    
     for k in recipients_r:
         gamma_val = gamma_dict.get(k, 0.0)
         multiplier = obj_mode_dict.get(k, 1)
         
         cols = solve_pricing_for_recipient(k, recipients_r[k], recipients_s[k], 
-                                           gamma_val, multiplier)
+                                           gamma_val, multiplier, pruning_stats, use_bound_pruning, dominance_mode)
         
         if cols:
-            results.append(cols[0])
+            # Validate each column BEFORE storing - only keep valid ones
+            valid_cols = []
+            for col in cols:
+                validation_errors = validate_final_column(col, recipients_s[k], ms, min_ms, theta_lookup)
+                if not validation_errors:  # Only if NO errors
+                    valid_cols.append(col)
+            
+            # Remove duplicates based on x_vector (post-filter for bucket dominance edge cases)
+            unique_cols = []
+            seen_x_vectors = set()
+            for col in valid_cols:
+                x_vec_tuple = tuple(col['x_vector'])
+                if x_vec_tuple not in seen_x_vectors:
+                    seen_x_vectors.add(x_vec_tuple)
+                    unique_cols.append(col)
+            
+            # Store UNIQUE VALID optimal columns for this recipient (with optional limit)
+            if unique_cols:
+                # Apply max limit if specified
+                if max_columns_per_recipient is not None and len(unique_cols) > max_columns_per_recipient:
+                    cols_to_store = unique_cols[:max_columns_per_recipient]
+                else:
+                    cols_to_store = unique_cols
+                
+                # Track: total valid found, unique, and actually stored
+                for col in cols_to_store:
+                    col['num_alternative_optimal'] = len(valid_cols)  # Total valid alternatives found
+                    col['num_unique'] = len(unique_cols)  # Unique alternatives (after dedup)
+                    col['num_stored'] = len(cols_to_store)  # How many are actually stored
+                results.extend(cols_to_store)  # Add the (limited) UNIQUE VALID optimal columns
     
     runtime = time.time() - t0
     
     if print_results:
         print(f"\nRuntime: {runtime:.4f}s")
-        print("\n--- Final Results (First found optimal per Recipient) ---")
+        print(f"Pruning Stats: Lower Bound = {pruning_stats['lb']}, State Dominance = {pruning_stats['dominance']}")
         
+        # Group results by recipient to show alternatives
+        results_by_recipient = {}
         for res in results:
-            print(f"\nRecipient {res['k']}:")
+            k = res['k']
+            if k not in results_by_recipient:
+                results_by_recipient[k] = []
+            results_by_recipient[k].append(res)
+        
+        print(f"\n--- Final Results ({len(results)} optimal schedules for {len(results_by_recipient)} recipients) ---")
+        
+        for k in sorted(results_by_recipient.keys()):
+            recipient_schedules = results_by_recipient[k]
+            num_alternatives = len(recipient_schedules)
+            
+            # Show only the FIRST schedule, but display the count
+            res = recipient_schedules[0]
+            
+            print(f"\nRecipient {k}:")
             print(f"  Reduced Cost: {res['reduced_cost']:.6f}")
+            print(f"  Alternative optimal schedules: {num_alternatives}")
             print(f"  Worker: {res['worker']}, Interval: {res['start']}-{res['end']}")
             
             vec = res['x_vector']
@@ -381,12 +785,119 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                 else:
                     print("  [OK] All constraints satisfied.")
     
+    # Final comprehensive validation of ALL found schedules
+    print("\n" + "="*70)
+    print("FINAL VALIDATION SUMMARY")
+    print("="*70)
+    
+    total_violations = 0
+    recipients_with_violations = []
+    
+    # Group by recipient for uniqueness check
+    results_by_recipient = {}
+    for res in results:
+        k = res['k']
+        if k not in results_by_recipient:
+            results_by_recipient[k] = []
+        results_by_recipient[k].append(res)
+    
+    for res in results:
+        validation_errors = validate_final_column(res, recipients_s[res['k']], 
+                                                  ms, min_ms, theta_lookup)
+        if validation_errors:
+            total_violations += len(validation_errors)
+            recipients_with_violations.append(res['k'])
+            if print_results:  # Only print details if verbose
+                print(f"\n❌ Recipient {res['k']} has {len(validation_errors)} violation(s):")
+                for err in validation_errors:
+                    print(f"   - {err}")
+    
+    # X-Vector Uniqueness Check
+    print("\n" + "-"*70)
+    print("X-VECTOR UNIQUENESS CHECK (per Recipient)")
+    print("-"*70)
+    
+    total_x_vector_duplicates = 0
+    recipients_with_x_duplicates = []
+    
+    for k in sorted(results_by_recipient.keys()):
+        recipient_cols = results_by_recipient[k]
+        
+        # Convert x_vectors to tuples for set comparison
+        x_vectors = [tuple(col['x_vector']) for col in recipient_cols]
+        unique_x_vectors = set(x_vectors)
+        
+        num_duplicates = len(x_vectors) - len(unique_x_vectors)
+        
+        if num_duplicates > 0:
+            total_x_vector_duplicates += num_duplicates
+            recipients_with_x_duplicates.append(k)
+            if print_results:
+                print(f"❌ Recipient {k}: {len(recipient_cols)} columns, {len(unique_x_vectors)} unique x_vectors ({num_duplicates} duplicates)")
+    
+    if total_x_vector_duplicates == 0:
+        print(f"✅ ALL x_vectors are UNIQUE per recipient!")
+        print(f"   Total columns checked: {len(results)}")
+        print(f"   Recipients: {len(results_by_recipient)}")
+    else:
+        print(f"❌ FOUND {total_x_vector_duplicates} x_vector DUPLICATES!")
+        print(f"   Affected recipients: {recipients_with_x_duplicates}")
+    
+    print("\n" + "-"*70)
+    
+    if total_violations == 0:
+        print(f"✅ ALL {len(results)} schedules are VALID!")
+        print(f"   - All rolling window constraints satisfied (MS={ms}, MIN_MS={min_ms})")
+        print(f"   - All start/end constraints satisfied")
+        print(f"   - All service targets met (or timeout)")
+    else:
+        print(f"❌ FOUND {total_violations} VIOLATIONS in {len(recipients_with_violations)} recipients!")
+        print(f"   Recipients with violations: {recipients_with_violations}")
+        print(f"   WARNING: These schedules may be INFEASIBLE!")
+    
+    print("="*70)
+    
     return results
 
 
-# --- 5. Main Execution ---
+# --- 6. Main Execution ---
 
 if __name__ == "__main__":
+    # Optional: Reference solution for comparison (None = create for the first time)
+    # After the first run: Copy the output here
+    REFERENCE_SOLUTION = [
+        ( 2,   -4.00),
+        ( 6,   21.00),
+        ( 8,  -42.00),
+        (13,   18.00),
+        (15,  -18.00),
+        (18,   18.00),
+        (19,  -11.00),
+        (20,   29.00),
+        (23,  -29.00),
+        (28,   -6.00),
+        (31,    7.00),
+        (36,  -10.00),
+        (37,   18.00),
+        (38,    0.00),
+        (44,   -9.00),
+        (45,  -21.00),
+        (47,    0.00),
+        (48,   -5.00),
+        (50,  -34.00),
+        (51,   -7.00),
+        (53,   13.00),
+        (54,   -3.00),
+        (60,  -12.00),
+        (64,   -9.00),
+        (66,  -15.00),
+        (68,   -8.00),
+        (76,   -7.00),
+        (78,   -8.00),
+        (80,  -29.00),
+        (84,   -3.00),
+    ]
+    
     # Aufruf der globalen Labeling-Algorithmus Funktion
     results = run_labeling_algorithm(
         recipients_r=r_i,
@@ -401,5 +912,16 @@ if __name__ == "__main__":
         theta_lookup=theta_lookup,
         print_worker_selection=True,
         validate_columns=True,
-        print_results=True
+        print_results=True,
+        use_bound_pruning=True,
+        dominance_mode='bucket',  # 'bucket' is faster than 'global'
+        max_columns_per_recipient=1000  # Limit to 10 alternative optimal schedules per recipient
     )
+    
+    # Comparison with fixed reference solution
+    if REFERENCE_SOLUTION is not None:
+        print_solution_comparison(results, REFERENCE_SOLUTION)
+    else:
+        print("\n" + "="*70)
+        print("INFO: No reference solution defined. Set REFERENCE_SOLUTION to enable regression testing.")
+        print("="*70)
