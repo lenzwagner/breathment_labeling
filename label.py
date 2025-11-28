@@ -45,15 +45,21 @@ def check_strict_feasibility(history, next_val, MS, MIN_MS):
         return True
 
 
-def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id, pruning_stats, dominance_mode='bucket'):
+def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id, pruning_stats, dominance_mode='bucket', zeta=None):
     """
     Adds state to bucket structure and applies dominance.
     
     dominance_mode:
-      - 'bucket': Compares only within same (ai_count, hist)
-      - 'global': Compares across all buckets (ai >= ai', hist >= hist')
+      - 'bucket': Compares only within same (ai_count, hist, zeta)
+      - 'global': Compares across all buckets (ai >= ai', hist >= hist', zeta >= zeta')
+    
+    zeta: Tuple of binary deviation indicators for branch constraints (None if no constraints)
     """
-    bucket_key = (ai_count, hist)
+    # Bucket key includes zeta if branch constraints are active
+    if zeta is not None:
+        bucket_key = (ai_count, hist, zeta)
+    else:
+        bucket_key = (ai_count, hist)
     
     # --- 1. GLOBAL PRUNING CHECK (Only in Global Mode) ---
     # Check if the NEW state is dominated by ANYONE
@@ -308,7 +314,8 @@ def compute_candidate_workers(workers, r_k, tau_max, pi_dict):
     return candidate_workers
 
 
-def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_stats, use_bound_pruning=True, dominance_mode='bucket'):
+def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_stats, 
+                                 use_bound_pruning=True, dominance_mode='bucket', branch_constraints=None, branching_variant='mp'):
     best_reduced_cost = float('inf')
     best_columns = []
     epsilon = 1e-9
@@ -324,6 +331,55 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
         print(f"Recipient {k:2d}: Candidate workers = {candidate_workers} (eliminated {eliminated_workers})")
     else:
         print(f"Recipient {k:2d}: Candidate workers = {candidate_workers} (no dominance)")
+    
+    # --- Parse Branch Constraints (MP Branching) ---
+    # For MP branching: branch_constraints contains "original_schedule" that must be EXCLUDED
+    # We need to track deviation from forbidden schedules via ζ_t vector
+    # Only applies when direction="left" (left branch = forbid)
+    forbidden_schedules = []
+    use_branch_constraints = False
+    
+    if branch_constraints is not None:
+        # branch_constraints can be a dict with multiple keys (constraint IDs)
+        # Each constraint has: profile, direction, original_schedule
+        for constraint_key, constraint_data in branch_constraints.items():
+            # Only process if this constraint is for our recipient
+            if constraint_data.get("profile") != k:
+                continue
+            
+            # Only process if direction is "left" (forbid this schedule)
+            if constraint_data.get("direction") != "left":
+                continue
+            
+            # --- MP Branching Logic ---
+            if branching_variant == 'mp':
+                # Check if this is MP branching (has "original_schedule" key)
+                if "original_schedule" in constraint_data:
+                    use_branch_constraints = True
+                    # Extract the forbidden schedule
+                    # original_schedule format: {(profile, worker, interval, shift): value}
+                    forbidden_schedule = {}
+                    for key, val in constraint_data["original_schedule"].items():
+                        # key = (profile, worker, interval, shift)
+                        # We only care about (worker, interval) -> value mapping
+                        profile, worker, interval, shift = key
+                        forbidden_schedule[(worker, interval)] = val
+                    
+                    forbidden_schedules.append({
+                        "schedule": forbidden_schedule,
+                        "constraint_key": constraint_key, # Keep for debugging/tracking
+                        "direction": constraint_data.get("direction", "left") # Keep for debugging/tracking
+                        # "bound": constraint_data.get("bound") # Not strictly needed for equality check
+                    })
+            
+            # --- SP Branching Logic (Placeholder) ---
+            elif branching_variant == 'sp':
+                pass # Initialize empty function / logic for SP branching here
+        
+        if use_branch_constraints:
+            print(f"  [MP BRANCHING] {len(forbidden_schedules)} no-good cut(s) active for recipient {k}")
+
+
 
     for j in candidate_workers:
         effective_min_duration = min(int(s_k), time_until_end)
@@ -336,17 +392,18 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
 
             # Debug status for Dominance (once per Recipient/Worker loop instance? No, per Recipient global!)
             # But we are here in the Worker loop.
-            # If we want it per Recipient, we need to define it outside.
-            # Since we can't pass it through without changing the signature, we do it here per Worker.
-            # WAIT: You wanted "only always the first time per recipient".
-            # This means we need a Dict that persists across the Worker loop.
+            # If we want it per Recipient, we need a Dict that persists across the Worker loop.
 
             # We define it at the beginning of the function solve_pricing_for_recipient
 
             # Initialization (Bucket structure)
-            # Key: (ai_count, hist), Value: List of (cost, prog, path)
+            # Key: (ai_count, hist, zeta), Value: List of (cost, prog, path)
+            # Initialize deviation vector ζ_t for branch constraints
+            num_cuts = len(forbidden_schedules)
+            initial_zeta = tuple([0] * num_cuts) if use_branch_constraints else None
+            
             current_states = {}
-            add_state_to_buckets(current_states, start_cost, 1.0, 0, (1,), [1], k, pruning_stats, dominance_mode)
+            add_state_to_buckets(current_states, start_cost, 1.0, 0, (1,), [1], k, pruning_stats, dominance_mode, initial_zeta)
 
             # DP Loop until just before Tau
             pruned_count_total = 0  # Counter for pruned states
@@ -356,7 +413,15 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
                 pruned_count_this_period = 0
 
                 # Iterate over all buckets
-                for (ai_count, hist), bucket_list in current_states.items():
+                # Note: bucket key may include zeta if branch constraints are active
+                for bucket_key, bucket_list in current_states.items():
+                    # Extract components from bucket key
+                    if use_branch_constraints:
+                        ai_count, hist, zeta = bucket_key
+                    else:
+                        ai_count, hist = bucket_key
+                        zeta = None
+                    
                     # Iterate over all states in the bucket
                     for cost, prog, path in bucket_list:
 
@@ -385,8 +450,20 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
                             # the most recent MS-1 actions, regardless of left-to-right or right-to-left order.
                             new_hist_ther = (hist + (1,))
                             if len(new_hist_ther) > MS - 1: new_hist_ther = new_hist_ther[-(MS - 1):]
+                            
+                            # Update deviation vector ζ_t if branch constraints are active
+                            new_zeta_ther = zeta
+                            if use_branch_constraints:
+                                new_zeta_ther = list(zeta)
+                                for cut_idx, cut in enumerate(forbidden_schedules):
+                                    if new_zeta_ther[cut_idx] == 0:  # Not yet deviated
+                                        # Check if assignment at (j, t) differs from forbidden schedule
+                                        forbidden_val = cut["schedule"].get((j, t), None)
+                                        if forbidden_val is not None and forbidden_val != 1:
+                                            new_zeta_ther[cut_idx] = 1  # Deviated!
+                                new_zeta_ther = tuple(new_zeta_ther)
 
-                            add_state_to_buckets(next_states, cost_ther, prog_ther, ai_count, new_hist_ther, path + [1], k, pruning_stats, dominance_mode)
+                            add_state_to_buckets(next_states, cost_ther, prog_ther, ai_count, new_hist_ther, path + [1], k, pruning_stats, dominance_mode, new_zeta_ther)
 
                         # B: AI
                         if check_strict_feasibility(hist, 0, MS, MIN_MS):
@@ -397,14 +474,33 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
                             # History Shift: Same logic as Therapist (see comment above)
                             new_hist_ai = (hist + (0,))
                             if len(new_hist_ai) > MS - 1: new_hist_ai = new_hist_ai[-(MS - 1):]
+                            
+                            # Update deviation vector ζ_t if branch constraints are active
+                            new_zeta_ai = zeta
+                            if use_branch_constraints:
+                                new_zeta_ai = list(zeta)
+                                for cut_idx, cut in enumerate(forbidden_schedules):
+                                    if new_zeta_ai[cut_idx] == 0:  # Not yet deviated
+                                        # Check if assignment at (j, t) differs from forbidden schedule
+                                        forbidden_val = cut["schedule"].get((j, t), None)
+                                        if forbidden_val is not None and forbidden_val != 0:
+                                            new_zeta_ai[cut_idx] = 1  # Deviated!
+                                new_zeta_ai = tuple(new_zeta_ai)
 
-                            add_state_to_buckets(next_states, cost_ai, prog_ai, ai_count_new, new_hist_ai, path + [0], k, pruning_stats, dominance_mode)
+                            add_state_to_buckets(next_states, cost_ai, prog_ai, ai_count_new, new_hist_ai, path + [0], k, pruning_stats, dominance_mode, new_zeta_ai)
 
                 current_states = next_states
                 if not current_states: break
 
             # Final Step (Transition to Tau)
-            for (ai_count, hist), bucket_list in current_states.items():
+            for bucket_key, bucket_list in current_states.items():
+                # Extract components from bucket key
+                if use_branch_constraints:
+                    ai_count, hist, zeta = bucket_key
+                else:
+                    ai_count, hist = bucket_key
+                    zeta = None
+                    
                 for cost, prog, path in bucket_list:
                     
                     # We collect possible end steps for this state
@@ -434,10 +530,43 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
 
                         final_path = path + [move]
                         condition_met = (final_prog >= s_k - epsilon)
-
+                        
+                        # Update final zeta for this move
+                        final_zeta = zeta
+                        if use_branch_constraints:
+                            final_zeta = list(zeta)
+                            for cut_idx, cut in enumerate(forbidden_schedules):
+                                if final_zeta[cut_idx] == 0:  # Not yet deviated
+                                    # Check if final assignment at (j, tau) differs from forbidden schedule
+                                    forbidden_val = cut["schedule"].get((j, tau), None)
+                                    if forbidden_val is not None and forbidden_val != move:
+                                        final_zeta[cut_idx] = 1  # Deviated!
+                            final_zeta = tuple(final_zeta)
+                        
+                        # Calculate reduced cost early for debug printing
+                        temp_reduced_cost = None
                         if condition_met or is_timeout_scenario:
                             duration = tau - r_k + 1
-                            reduced_cost = (obj_multiplier * duration) + final_cost_accum - gamma_k
+                            temp_reduced_cost = (obj_multiplier * duration) + final_cost_accum - gamma_k
+
+                        # TERMINAL FEASIBILITY CHECK: All deviation vector entries must equal 1
+                        if use_branch_constraints:
+                            if temp_reduced_cost is not None:
+                                print(f"    [CHECK] Zeta {final_zeta} | RC: {temp_reduced_cost:.6f}")
+                            
+                            if not all(z == 1 for z in final_zeta):
+                                # This path hasn't deviated from all forbidden schedules -> REJECT
+                                print(f"    [PRUNED] Schedule matches forbidden branch constraint. "
+                                      f"Deviation vector ζ = {final_zeta}")
+                                continue
+
+                        if condition_met or is_timeout_scenario:
+                            # duration and reduced_cost already calculated above if needed
+                            if temp_reduced_cost is None: # Should match logic above
+                                duration = tau - r_k + 1
+                                reduced_cost = (obj_multiplier * duration) + final_cost_accum - gamma_k
+                            else:
+                                reduced_cost = temp_reduced_cost
 
                             col_candidate = {
                                 'k': k,
@@ -580,7 +709,8 @@ def print_solution_comparison(current_results, reference_solution):
 def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict, 
                            pi_dict, workers, max_time, ms, min_ms, theta_lookup,
                            print_worker_selection=True, validate_columns=True, print_results=True,
-                           use_bound_pruning=True, dominance_mode='bucket', max_columns_per_recipient=None):
+                           use_bound_pruning=True, dominance_mode='bucket', max_columns_per_recipient=None,
+                           branch_constraints=None, branching_variant='mp'):
     """
     Global Labeling Algorithm Function.
 
@@ -704,8 +834,10 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
         gamma_val = gamma_dict.get(k, 0.0)
         multiplier = obj_mode_dict.get(k, 1)
         
+        # Pass entire branch_constraints dict - the solver will filter by recipient
         cols = solve_pricing_for_recipient(k, recipients_r[k], recipients_s[k], 
-                                           gamma_val, multiplier, pruning_stats, use_bound_pruning, dominance_mode)
+                                           gamma_val, multiplier, pruning_stats, 
+                                           use_bound_pruning, dominance_mode, branch_constraints, branching_variant)
         
         if cols:
             # Validate each column BEFORE storing - only keep valid ones
@@ -759,12 +891,21 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
             recipient_schedules = results_by_recipient[k]
             num_alternatives = len(recipient_schedules)
             
+            # Count active cuts for this recipient
+            num_active_cuts = 0
+            if branch_constraints:
+                for constraint_data in branch_constraints.values():
+                    if constraint_data.get("profile") == k and constraint_data.get("direction") == "left":
+                        num_active_cuts += 1
+            
             # Show only the FIRST schedule, but display the count
             res = recipient_schedules[0]
             
             print(f"\nRecipient {k}:")
             print(f"  Reduced Cost: {res['reduced_cost']:.6f}")
             print(f"  Alternative optimal schedules: {num_alternatives}")
+            if num_active_cuts > 0:
+                print(f"  Active branch cuts: {num_active_cuts}")
             print(f"  Worker: {res['worker']}, Interval: {res['start']}-{res['end']}")
             
             vec = res['x_vector']
@@ -898,7 +1039,154 @@ if __name__ == "__main__":
         (84,   -3.00),
     ]
     
-    # Aufruf der globalen Labeling-Algorithmus Funktion
+    # ========================================================================
+    # BRANCH CONSTRAINTS DEFINITION
+    # ========================================================================
+    
+    class MPVariableBranching:
+        def __init__(self, profile_n, column_a, bound, direction, original_schedule=None):
+            self.profile = profile_n
+            self.column = column_a
+            self.bound = bound
+            self.direction = direction
+            self.original_schedule = original_schedule
+
+    # Define the constraints list
+    node_branching_constraints = [
+        MPVariableBranching(
+            profile_n=6,
+            column_a=7,
+            bound=0.0,
+            direction='left',
+            original_schedule={
+                (6, 1, 1, 0): 0, (6, 1, 2, 0): 0, (6, 1, 3, 0): 0, (6, 1, 4, 0): 0, (6, 1, 5, 0): 0,
+                (6, 1, 6, 0): 0, (6, 1, 7, 0): 0, (6, 1, 8, 0): 0, (6, 1, 9, 0): 0, (6, 1, 10, 0): 0,
+                (6, 1, 11, 0): 0, (6, 1, 12, 0): 0, (6, 1, 13, 0): 0, (6, 1, 14, 0): 0, (6, 1, 15, 0): 0,
+                (6, 1, 16, 0): 1, (6, 1, 17, 0): 1, (6, 1, 18, 0): 0, (6, 1, 19, 0): 1, (6, 1, 20, 0): 1,
+                (6, 1, 21, 0): 0, (6, 1, 22, 0): 1, (6, 1, 23, 0): 1, (6, 1, 24, 0): 1, (6, 1, 25, 0): 1,
+                (6, 1, 26, 0): 0, (6, 1, 27, 0): 0, (6, 1, 28, 0): 0, (6, 1, 29, 0): 1, (6, 1, 30, 0): 0,
+                (6, 1, 31, 0): 0, (6, 1, 32, 0): 0, (6, 1, 33, 0): 0, (6, 1, 34, 0): 0, (6, 1, 35, 0): 0,
+                (6, 1, 36, 0): 0, (6, 1, 37, 0): 0, (6, 1, 38, 0): 0, (6, 1, 39, 0): 0, (6, 1, 40, 0): 0,
+                (6, 1, 41, 0): 0, (6, 1, 42, 0): 0, (6, 2, 1, 0): 0, (6, 2, 2, 0): 0, (6, 2, 3, 0): 0,
+                (6, 2, 4, 0): 0, (6, 2, 5, 0): 0, (6, 2, 6, 0): 0, (6, 2, 7, 0): 0, (6, 2, 8, 0): 0,
+                (6, 2, 9, 0): 0, (6, 2, 10, 0): 0, (6, 2, 11, 0): 0, (6, 2, 12, 0): 0, (6, 2, 13, 0): 0,
+                (6, 2, 14, 0): 0, (6, 2, 15, 0): 0, (6, 2, 16, 0): 0, (6, 2, 17, 0): 0, (6, 2, 18, 0): 0,
+                (6, 2, 19, 0): 0, (6, 2, 20, 0): 0, (6, 2, 21, 0): 0, (6, 2, 22, 0): 0, (6, 2, 23, 0): 0,
+                (6, 2, 24, 0): 0, (6, 2, 25, 0): 0, (6, 2, 26, 0): 0, (6, 2, 27, 0): 0, (6, 2, 28, 0): 0,
+                (6, 2, 29, 0): 0, (6, 2, 30, 0): 0, (6, 2, 31, 0): 0, (6, 2, 32, 0): 0, (6, 2, 33, 0): 0,
+                (6, 2, 34, 0): 0, (6, 2, 35, 0): 0, (6, 2, 36, 0): 0, (6, 2, 37, 0): 0, (6, 2, 38, 0): 0,
+                (6, 2, 39, 0): 0, (6, 2, 40, 0): 0, (6, 2, 41, 0): 0, (6, 2, 42, 0): 0, (6, 3, 1, 0): 0,
+                (6, 3, 2, 0): 0, (6, 3, 3, 0): 0, (6, 3, 4, 0): 0, (6, 3, 5, 0): 0, (6, 3, 6, 0): 0,
+                (6, 3, 7, 0): 0, (6, 3, 8, 0): 0, (6, 3, 9, 0): 0, (6, 3, 10, 0): 0, (6, 3, 11, 0): 0,
+                (6, 3, 12, 0): 0, (6, 3, 13, 0): 0, (6, 3, 14, 0): 0, (6, 3, 15, 0): 0, (6, 3, 16, 0): 0,
+                (6, 3, 17, 0): 0, (6, 3, 18, 0): 0, (6, 3, 19, 0): 0, (6, 3, 20, 0): 0, (6, 3, 21, 0): 0,
+                (6, 3, 22, 0): 0, (6, 3, 23, 0): 0, (6, 3, 24, 0): 0, (6, 3, 25, 0): 0, (6, 3, 26, 0): 0,
+                (6, 3, 27, 0): 0, (6, 3, 28, 0): 0, (6, 3, 29, 0): 0, (6, 3, 30, 0): 0, (6, 3, 31, 0): 0,
+                (6, 3, 32, 0): 0, (6, 3, 33, 0): 0, (6, 3, 34, 0): 0, (6, 3, 35, 0): 0, (6, 3, 36, 0): 0,
+                (6, 3, 37, 0): 0, (6, 3, 38, 0): 0, (6, 3, 39, 0): 0, (6, 3, 40, 0): 0, (6, 3, 41, 0): 0,
+                (6, 3, 42, 0): 0
+            }
+        ),
+        MPVariableBranching(
+            profile_n=6,
+            column_a=7,
+            bound=0.0,
+            direction='left',
+            original_schedule={
+                (6, 1, 1, 0): 0, (6, 1, 2, 0): 0, (6, 1, 3, 0): 0, (6, 1, 4, 0): 0, (6, 1, 5, 0): 0,
+                (6, 1, 6, 0): 0, (6, 1, 7, 0): 0, (6, 1, 8, 0): 0, (6, 1, 9, 0): 0, (6, 1, 10, 0): 0,
+                (6, 1, 11, 0): 0, (6, 1, 12, 0): 0, (6, 1, 13, 0): 0, (6, 1, 14, 0): 0, (6, 1, 15, 0): 0,
+                (6, 1, 16, 0): 1, (6, 1, 17, 0): 1, (6, 1, 18, 0): 0, (6, 1, 19, 0): 1, (6, 1, 20, 0): 1,
+                (6, 1, 21, 0): 1, (6, 1, 22, 0): 0, (6, 1, 23, 0): 0, (6, 1, 24, 0): 1, (6, 1, 25, 0): 1,
+                (6, 1, 26, 0): 0, (6, 1, 27, 0): 0, (6, 1, 28, 0): 0, (6, 1, 29, 0): 1, (6, 1, 30, 0): 0,
+                (6, 1, 31, 0): 0, (6, 1, 32, 0): 0, (6, 1, 33, 0): 0, (6, 1, 34, 0): 0, (6, 1, 35, 0): 0,
+                (6, 1, 36, 0): 0, (6, 1, 37, 0): 0, (6, 1, 38, 0): 0, (6, 1, 39, 0): 0, (6, 1, 40, 0): 0,
+                (6, 1, 41, 0): 0, (6, 1, 42, 0): 0, (6, 2, 1, 0): 0, (6, 2, 2, 0): 0, (6, 2, 3, 0): 0,
+                (6, 2, 4, 0): 0, (6, 2, 5, 0): 0, (6, 2, 6, 0): 0, (6, 2, 7, 0): 0, (6, 2, 8, 0): 0,
+                (6, 2, 9, 0): 0, (6, 2, 10, 0): 0, (6, 2, 11, 0): 0, (6, 2, 12, 0): 0, (6, 2, 13, 0): 0,
+                (6, 2, 14, 0): 0, (6, 2, 15, 0): 0, (6, 2, 16, 0): 0, (6, 2, 17, 0): 0, (6, 2, 18, 0): 0,
+                (6, 2, 19, 0): 0, (6, 2, 20, 0): 0, (6, 2, 21, 0): 0, (6, 2, 22, 0): 0, (6, 2, 23, 0): 0,
+                (6, 2, 24, 0): 0, (6, 2, 25, 0): 0, (6, 2, 26, 0): 0, (6, 2, 27, 0): 0, (6, 2, 28, 0): 0,
+                (6, 2, 29, 0): 0, (6, 2, 30, 0): 0, (6, 2, 31, 0): 0, (6, 2, 32, 0): 0, (6, 2, 33, 0): 0,
+                (6, 2, 34, 0): 0, (6, 2, 35, 0): 0, (6, 2, 36, 0): 0, (6, 2, 37, 0): 0, (6, 2, 38, 0): 0,
+                (6, 2, 39, 0): 0, (6, 2, 40, 0): 0, (6, 2, 41, 0): 0, (6, 2, 42, 0): 0, (6, 3, 1, 0): 0,
+                (6, 3, 2, 0): 0, (6, 3, 3, 0): 0, (6, 3, 4, 0): 0, (6, 3, 5, 0): 0, (6, 3, 6, 0): 0,
+                (6, 3, 7, 0): 0, (6, 3, 8, 0): 0, (6, 3, 9, 0): 0, (6, 3, 10, 0): 0, (6, 3, 11, 0): 0,
+                (6, 3, 12, 0): 0, (6, 3, 13, 0): 0, (6, 3, 14, 0): 0, (6, 3, 15, 0): 0, (6, 3, 16, 0): 0,
+                (6, 3, 17, 0): 0, (6, 3, 18, 0): 0, (6, 3, 19, 0): 0, (6, 3, 20, 0): 0, (6, 3, 21, 0): 0,
+                (6, 3, 22, 0): 0, (6, 3, 23, 0): 0, (6, 3, 24, 0): 0, (6, 3, 25, 0): 0, (6, 3, 26, 0): 0,
+                (6, 3, 27, 0): 0, (6, 3, 28, 0): 0, (6, 3, 29, 0): 0, (6, 3, 30, 0): 0, (6, 3, 31, 0): 0,
+                (6, 3, 32, 0): 0, (6, 3, 33, 0): 0, (6, 3, 34, 0): 0, (6, 3, 35, 0): 0, (6, 3, 36, 0): 0,
+                (6, 3, 37, 0): 0, (6, 3, 38, 0): 0, (6, 3, 39, 0): 0, (6, 3, 40, 0): 0, (6, 3, 41, 0): 0,
+                (6, 3, 42, 0): 0
+            }
+        ),
+        MPVariableBranching(
+            profile_n=6,
+            column_a=7,
+            bound=0.0,
+            direction='right',
+            original_schedule={
+                (6, 1, 1, 0): 0, (6, 1, 2, 0): 0, (6, 1, 3, 0): 0, (6, 1, 4, 0): 0, (6, 1, 5, 0): 0,
+                (6, 1, 6, 0): 0, (6, 1, 7, 0): 0, (6, 1, 8, 0): 0, (6, 1, 9, 0): 0, (6, 1, 10, 0): 0,
+                (6, 1, 11, 0): 0, (6, 1, 12, 0): 0, (6, 1, 13, 0): 0, (6, 1, 14, 0): 0, (6, 1, 15, 0): 0,
+                (6, 1, 16, 0): 1, (6, 1, 17, 0): 1, (6, 1, 18, 0): 1, (6, 1, 19, 0): 1, (6, 1, 20, 0): 0,
+                (6, 1, 21, 0): 0, (6, 1, 22, 0): 1, (6, 1, 23, 0): 0, (6, 1, 24, 0): 1, (6, 1, 25, 0): 1,
+                (6, 1, 26, 0): 0, (6, 1, 27, 0): 0, (6, 1, 28, 0): 0, (6, 1, 29, 0): 1, (6, 1, 30, 0): 0,
+                (6, 1, 31, 0): 0, (6, 1, 32, 0): 0, (6, 1, 33, 0): 0, (6, 1, 34, 0): 0, (6, 1, 35, 0): 0,
+                (6, 1, 36, 0): 0, (6, 1, 37, 0): 0, (6, 1, 38, 0): 0, (6, 1, 39, 0): 0, (6, 1, 40, 0): 0,
+                (6, 1, 41, 0): 0, (6, 1, 42, 0): 0, (6, 2, 1, 0): 0, (6, 2, 2, 0): 0, (6, 2, 3, 0): 0,
+                (6, 2, 4, 0): 0, (6, 2, 5, 0): 0, (6, 2, 6, 0): 0, (6, 2, 7, 0): 0, (6, 2, 8, 0): 0,
+                (6, 2, 9, 0): 0, (6, 2, 10, 0): 0, (6, 2, 11, 0): 0, (6, 2, 12, 0): 0, (6, 2, 13, 0): 0,
+                (6, 2, 14, 0): 0, (6, 2, 15, 0): 0, (6, 2, 16, 0): 0, (6, 2, 17, 0): 0, (6, 2, 18, 0): 0,
+                (6, 2, 19, 0): 0, (6, 2, 20, 0): 0, (6, 2, 21, 0): 0, (6, 2, 22, 0): 0, (6, 2, 23, 0): 0,
+                (6, 2, 24, 0): 0, (6, 2, 25, 0): 0, (6, 2, 26, 0): 0, (6, 2, 27, 0): 0, (6, 2, 28, 0): 0,
+                (6, 2, 29, 0): 0, (6, 2, 30, 0): 0, (6, 2, 31, 0): 0, (6, 2, 32, 0): 0, (6, 2, 33, 0): 0,
+                (6, 2, 34, 0): 0, (6, 2, 35, 0): 0, (6, 2, 36, 0): 0, (6, 2, 37, 0): 0, (6, 2, 38, 0): 0,
+                (6, 2, 39, 0): 0, (6, 2, 40, 0): 0, (6, 2, 41, 0): 0, (6, 2, 42, 0): 0, (6, 3, 1, 0): 0,
+                (6, 3, 2, 0): 0, (6, 3, 3, 0): 0, (6, 3, 4, 0): 0, (6, 3, 5, 0): 0, (6, 3, 6, 0): 0,
+                (6, 3, 7, 0): 0, (6, 3, 8, 0): 0, (6, 3, 9, 0): 0, (6, 3, 10, 0): 0, (6, 3, 11, 0): 0,
+                (6, 3, 12, 0): 0, (6, 3, 13, 0): 0, (6, 3, 14, 0): 0, (6, 3, 15, 0): 0, (6, 3, 16, 0): 0,
+                (6, 3, 17, 0): 0, (6, 3, 18, 0): 0, (6, 3, 19, 0): 0, (6, 3, 20, 0): 0, (6, 3, 21, 0): 0,
+                (6, 3, 22, 0): 0, (6, 3, 23, 0): 0, (6, 3, 24, 0): 0, (6, 3, 25, 0): 0, (6, 3, 26, 0): 0,
+                (6, 3, 27, 0): 0, (6, 3, 28, 0): 0, (6, 3, 29, 0): 0, (6, 3, 30, 0): 0, (6, 3, 31, 0): 0,
+                (6, 3, 32, 0): 0, (6, 3, 33, 0): 0, (6, 3, 34, 0): 0, (6, 3, 35, 0): 0, (6, 3, 36, 0): 0,
+                (6, 3, 37, 0): 0, (6, 3, 38, 0): 0, (6, 3, 39, 0): 0, (6, 3, 40, 0): 0, (6, 3, 41, 0): 0,
+                (6, 3, 42, 0): 0
+            }
+        ),
+    ]
+
+    # Convert list to dictionary for labeling algorithm
+    branch_constraints = {}
+    for idx, constraint in enumerate(node_branching_constraints):
+        branch_constraints[idx] = {
+            "profile": constraint.profile,
+            "column": constraint.column,
+            "direction": constraint.direction,
+            "bound": constraint.bound,
+            "original_schedule": constraint.original_schedule
+        }
+    
+    # To disable all constraints, just use:
+    # branch_constraints = {}
+    
+    # ========================================================================
+    # RUN LABELING ALGORITHM
+    # ========================================================================
+    
+    print("="*70)
+    print("LABELING ALGORITHM - Column Generation Pricing")
+    print("="*70)
+    if branch_constraints:
+        print(f"Branch Constraints: {len(branch_constraints)} constraint(s) defined")
+        for key, constraint in branch_constraints.items():
+            print(f"  {key}: profile={constraint['profile']}, direction={constraint['direction']}")
+    else:
+        print("Branch Constraints: None (empty dict)")
+    print("="*70)
+    print()
+    
     results = run_labeling_algorithm(
         recipients_r=r_i,
         recipients_s=s_i,
@@ -914,8 +1202,10 @@ if __name__ == "__main__":
         validate_columns=True,
         print_results=True,
         use_bound_pruning=True,
-        dominance_mode='bucket',  # 'bucket' is faster than 'global'
-        max_columns_per_recipient=1000  # Limit to 10 alternative optimal schedules per recipient
+        dominance_mode='bucket',
+        max_columns_per_recipient=None, # No limit for now, to see all alternatives
+        branch_constraints=branch_constraints,
+        branching_variant='mp'
     )
     
     # Comparison with fixed reference solution
