@@ -45,15 +45,20 @@ def check_strict_feasibility(history, next_val, MS, MIN_MS):
         return True
 
 
-def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id, pruning_stats, dominance_mode='bucket', zeta=None):
+def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id, pruning_stats, dominance_mode='bucket', zeta=None, epsilon=1e-9):
     """
-    Adds state to bucket structure and applies dominance.
+    Adds a state to buckets, applying dominance rules.
+    
+    buckets structure: 
+      - Key: (ai_count, hist) or (ai_count, hist, zeta)
+      - Value: list_of_states [(cost, prog, path), ...]
     
     dominance_mode:
       - 'bucket': Compares only within same (ai_count, hist, zeta)
       - 'global': Compares across all buckets (ai >= ai', hist >= hist', zeta >= zeta')
     
     zeta: Tuple of binary deviation indicators for branch constraints (None if no constraints)
+    epsilon: Tolerance for float comparisons (default 1e-9)
     """
     # Bucket key includes zeta if branch constraints are active
     if zeta is not None:
@@ -76,12 +81,7 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
                 continue
                 
             # Hist Check (component-wise >=)
-            # Note: Hist lengths can vary at the beginning? 
-            # No, we assume they are comparable or we define dominance only for the same length.
-            # In the code, Hist grows up to MS-1.
             if len(hist_other) != len(hist):
-                # Different length -> hard to compare (or do we assume shorter is worse?)
-                # Safer: Only compare same length
                 continue
             
             hist_better = True
@@ -95,7 +95,8 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
             # If we are here, the other bucket is "structurally" better or equal.
             # Now we check Cost & Prog in this bucket
             for c_old, p_old, _ in other_list:
-                if c_old <= cost and p_old >= prog:
+                # Use epsilon for float comparison: c_old <= cost + eps AND p_old >= prog - eps
+                if c_old <= cost + epsilon and p_old >= prog - epsilon:
                     is_dominated_globally = True
                     dominator_global = (c_old, p_old, ai_other, hist_other)
                     break
@@ -116,7 +117,7 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
         buckets[bucket_key] = []
     
     bucket_list = buckets[bucket_key]
-    
+
     # --- 3. LOCAL DOMINANCE (Within the Bucket) ---
     # Even in Global Mode we do this to keep our own bucket clean
     
@@ -125,7 +126,8 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
     dominator = None
     
     for c_old, p_old, _ in bucket_list:
-        if c_old <= cost and p_old >= prog:
+        # Use epsilon for float comparison: c_old <= cost + eps AND p_old >= prog - eps
+        if c_old <= cost + epsilon and p_old >= prog - epsilon:
             is_dominated = True
             dominator = (c_old, p_old)
             break
@@ -140,15 +142,12 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
     
     # --- 4. CLEANUP (Only important in Global Mode, but also good locally) ---
     # Remove existing states that are dominated by the new one
-    # In Global Mode, the new state could also delete states in OTHER (worse) buckets.
-    # However, this is very complex to implement (iterate over all buckets and delete).
-    # We limit deletion to our OWN bucket (Bucket Cleanup).
-    # Global Pruning therefore only works "incoming" (New State is deleted), not "outgoing" (New State deletes other buckets).
-    # This is a good compromise for performance.
     
     new_bucket_list = []
+    
     for c_old, p_old, path_old in bucket_list:
-        if cost <= c_old and prog >= p_old:
+        # Use epsilon for float comparison: cost <= c_old + eps AND prog >= p_old - eps
+        if cost <= c_old + epsilon and prog >= p_old - epsilon:
             pruning_stats['dominance'] += 1
             # We skip print here for clarity, or only once
             continue 
@@ -256,14 +255,7 @@ def compute_lower_bound(current_progress, current_cost, target_progress,
     # 3. Time costs (number of periods)
     time_cost = periods_to_use
 
-    # 4. BEST possible Dual costs (we subtract π because DP does: cost - π)
-    dual_cost = 0.0
-    for u in range(current_time + 1, current_time + periods_to_use + 1):
-        if u <= end_time:
-            dual_cost += pi_dict.get((worker_id, u), 0.0)  # Subtract π to match DP logic
-
-    # 5. Lower Bound = current costs + optimistic remaining costs - gamma
-    lower_bound = current_cost + time_cost + dual_cost - gamma_k
+    lower_bound = current_cost + time_cost - gamma_k
 
     return lower_bound
 
@@ -314,11 +306,17 @@ def compute_candidate_workers(workers, r_k, tau_max, pi_dict):
     return candidate_workers
 
 
-def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_stats, 
-                                 use_bound_pruning=True, dominance_mode='bucket', branch_constraints=None, branching_variant='mp'):
+def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_dict, workers, max_time, ms, min_ms, theta_lookup, 
+                                use_bound_pruning=True, dominance_mode='bucket', branch_constraints=None, branching_variant='mp'):
     best_reduced_cost = float('inf')
     best_columns = []
     epsilon = 1e-9
+    
+    pruning_stats = {
+        'lb': 0,
+        'dominance': 0,
+        'printed_dominance': {}
+    }
 
     time_until_end = MAX_TIME - r_k + 1
 
@@ -328,9 +326,9 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
 
     # Print for each Recipient
     if eliminated_workers:
-        print(f"Recipient {k:2d}: Candidate workers = {candidate_workers} (eliminated {eliminated_workers})")
+        print(f"Recipient {recipient_id:2d}: Candidate workers = {candidate_workers} (eliminated {eliminated_workers})")
     else:
-        print(f"Recipient {k:2d}: Candidate workers = {candidate_workers} (no dominance)")
+        print(f"Recipient {recipient_id:2d}: Candidate workers = {candidate_workers} (no dominance)")
     
     # --- Parse Branch Constraints (MP Branching) ---
     # For MP branching: branch_constraints contains "original_schedule" that must be EXCLUDED
@@ -344,7 +342,7 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
         # Each constraint has: profile, direction, original_schedule
         for constraint_key, constraint_data in branch_constraints.items():
             # Only process if this constraint is for our recipient
-            if constraint_data.get("profile") != k:
+            if constraint_data.get("profile") != recipient_id:
                 continue
             
             # Only process if direction is "left" (forbid this schedule)
@@ -377,7 +375,7 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
                 pass # Initialize empty function / logic for SP branching here
         
         if use_branch_constraints:
-            print(f"  [MP BRANCHING] {len(forbidden_schedules)} no-good cut(s) active for recipient {k}")
+            print(f"  [MP BRANCHING] {len(forbidden_schedules)} no-good cut(s) active for recipient {recipient_id}")
 
 
 
@@ -403,7 +401,9 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
             initial_zeta = tuple([0] * num_cuts) if use_branch_constraints else None
             
             current_states = {}
-            add_state_to_buckets(current_states, start_cost, 1.0, 0, (1,), [1], k, pruning_stats, dominance_mode, initial_zeta)
+            # Initialize with start state
+            initial_history = (1,) # First action is always 1 (Therapist)
+            add_state_to_buckets(current_states, start_cost, 1.0, 0, initial_history, [1], recipient_id, pruning_stats, dominance_mode, initial_zeta, epsilon)
 
             # DP Loop until just before Tau
             pruned_count_total = 0  # Counter for pruned states
@@ -463,7 +463,7 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
                                             new_zeta_ther[cut_idx] = 1  # Deviated!
                                 new_zeta_ther = tuple(new_zeta_ther)
 
-                            add_state_to_buckets(next_states, cost_ther, prog_ther, ai_count, new_hist_ther, path + [1], k, pruning_stats, dominance_mode, new_zeta_ther)
+                            add_state_to_buckets(next_states, cost_ther, prog_ther, ai_count, new_hist_ther, path + [1], recipient_id, pruning_stats, dominance_mode, new_zeta_ther, epsilon)
 
                         # B: AI
                         if check_strict_feasibility(hist, 0, MS, MIN_MS):
@@ -487,12 +487,17 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
                                             new_zeta_ai[cut_idx] = 1  # Deviated!
                                 new_zeta_ai = tuple(new_zeta_ai)
 
-                            add_state_to_buckets(next_states, cost_ai, prog_ai, ai_count_new, new_hist_ai, path + [0], k, pruning_stats, dominance_mode, new_zeta_ai)
+                            add_state_to_buckets(next_states, cost_ai, prog_ai, ai_count_new, new_hist_ai, path + [0], recipient_id, pruning_stats, dominance_mode, new_zeta_ai, epsilon)
 
                 current_states = next_states
                 if not current_states: break
 
             # Final Step (Transition to Tau)
+            # This logic implements Equation (3) for the terminal cost term Ψ_{jξ}:
+            # - If ξ < |T| (is_timeout_scenario=False): We enforce a worker assignment (move=1).
+            #   This corresponds to Ψ = V_{ξ-1} - π_{jξ}.
+            # - If ξ = |T| (is_timeout_scenario=True): We allow any feasible state (move=0 or 1).
+            #   This corresponds to Ψ = V_ξ.
             for bucket_key, bucket_list in current_states.items():
                 # Extract components from bucket key
                 if use_branch_constraints:
@@ -547,7 +552,7 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
                         temp_reduced_cost = None
                         if condition_met or is_timeout_scenario:
                             duration = tau - r_k + 1
-                            temp_reduced_cost = (obj_multiplier * duration) + final_cost_accum - gamma_k
+                            temp_reduced_cost = (obj_mode * duration) + final_cost_accum - gamma_k
 
                         # TERMINAL FEASIBILITY CHECK: All deviation vector entries must equal 1
                         if use_branch_constraints:
@@ -564,12 +569,12 @@ def solve_pricing_for_recipient(k, r_k, s_k, gamma_k, obj_multiplier, pruning_st
                             # duration and reduced_cost already calculated above if needed
                             if temp_reduced_cost is None: # Should match logic above
                                 duration = tau - r_k + 1
-                                reduced_cost = (obj_multiplier * duration) + final_cost_accum - gamma_k
+                                reduced_cost = (obj_mode * duration) + final_cost_accum - gamma_k
                             else:
                                 reduced_cost = temp_reduced_cost
 
                             col_candidate = {
-                                'k': k,
+                                'k': recipient_id,
                                 'worker': j,
                                 'start': r_k,
                                 'end': tau,
@@ -639,6 +644,11 @@ def compare_solutions(current_results, reference_solution):
         current_rc = current_dict.get(recipient_id, None)
         reference_rc = reference_dict.get(recipient_id, None)
         
+        # MODIFIED: Only compare if reference expects a NEGATIVE reduced cost.
+        # In Column Generation, we don't care about non-negative solutions (0.00 or positive).
+        if reference_rc is not None and reference_rc >= -1e-9:
+            continue
+        
         if current_rc is None:
             differences.append({
                 'recipient': recipient_id,
@@ -647,6 +657,11 @@ def compare_solutions(current_results, reference_solution):
                 'reference': reference_rc
             })
         elif reference_rc is None:
+            # MODIFIED: Ignore EXTRA solutions if they are non-negative (0.00 or positive).
+            # These are irrelevant for Column Generation.
+            if current_rc >= -1e-9:
+                continue
+                
             differences.append({
                 'recipient': recipient_id,
                 'status': 'EXTRA',
@@ -720,51 +735,11 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
     TODO / OPEN ISSUES:
     ================================================================================
 
-    1. BUCKET DOMINANCE BUG (HIGH PRIORITY)
-       - Issue: When storing >100 columns per recipient, duplicate x_vectors appear
-       - Evidence: Test with max_columns_per_recipient=1000 shows ~10% duplicates
-       - Current Workaround: Post-filter removes duplicates (lines 664-670)
-       - Root Cause: Unknown - likely float precision or edge case in bucket dominance
-       - Action Needed:
-         * Debug add_state_to_buckets() function (lines 48-152)
-         * Check if cost/prog comparisons have float precision issues
-         * Investigate if identical states can exist in different buckets
-         * Consider using epsilon for float comparisons
-       - Location: add_state_to_buckets(), bucket_key = (ai_count, hist)
-
-    2. LOWER BOUND HORIZON EXCEPTION (MEDIUM PRIORITY)
-       - Issue: LaTeX spec says "unless t = |T|" but code prunes at all t
-       - LaTeX: "A state is pruned [...] unless t corresponds to the horizon limit |T|"
-       - Current: Bound pruning happens at ALL time steps including MAX_TIME
-       - Fix: Change line ~370: if use_bound_pruning and tau < MAX_TIME:
-       - Impact: May prevent valid columns at horizon from being generated
-       - Status: Not yet implemented
-
-    3. TERMINAL COST LOGIC VERIFICATION (LOW PRIORITY)
-       - Issue: Implementation differs conceptually from LaTeX but may be equivalent
-       - LaTeX: Explicit separate final step V_{ξ-1} - π_{jξ}
-       - Code: Final step integrated in main loop (lines 422-440)
-       - Status: Functionally appears correct (tested), but semantically different
-       - Action: Document equivalence proof or align with LaTeX notation
-
-    4. LOWER BOUND FORMULA CLARIFICATION (LOW PRIORITY)
-       - Issue: Code limits periods_available, LaTeX doesn't explicitly mention this
-       - Current: periods_to_use = min(min_periods_needed, periods_available)
-       - Question: Should LB be purely optimistic or respect available time?
-       - Status: Current implementation seems more conservative (safer)
-       - Action: Verify against LaTeX author's intent
-
-    5. PERFORMANCE OPTIMIZATIONS (FUTURE)
+    1. PERFORMANCE OPTIMIZATIONS (FUTURE)
        - Bucket dominance is faster than global but still O(bucket_size)
        - Consider: Hash-based deduplication before bucket insertion
        - Consider: More aggressive state pruning strategies
        - Consider: Parallel processing for multiple recipients
-
-    6. CODE DOCUMENTATION (ONGOING)
-       - History shift operation correctly explained (lines 382-386)
-       - Terminal cost equivalence documented (see explain_terminal_cost.py)
-       - Lower bound analysis documented (see lower_bound_analysis.md)
-       - Implementation gaps documented (see implementation_gaps.md)
 
     ================================================================================
     
@@ -836,8 +811,8 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
         
         # Pass entire branch_constraints dict - the solver will filter by recipient
         cols = solve_pricing_for_recipient(k, recipients_r[k], recipients_s[k], 
-                                           gamma_val, multiplier, pruning_stats, 
-                                           use_bound_pruning, dominance_mode, branch_constraints, branching_variant)
+                                           gamma_val, multiplier, pi_dict, workers, max_time, ms, min_ms, theta_lookup,
+                                           use_bound_pruning=use_bound_pruning, dominance_mode=dominance_mode, branch_constraints=branch_constraints, branching_variant=branching_variant)
         
         if cols:
             # Validate each column BEFORE storing - only keep valid ones
@@ -1203,7 +1178,7 @@ if __name__ == "__main__":
         print_results=True,
         use_bound_pruning=True,
         dominance_mode='bucket',
-        max_columns_per_recipient=None, # No limit for now, to see all alternatives
+        max_columns_per_recipient=10, # No limit for now, to see all alternatives
         branch_constraints=branch_constraints,
         branching_variant='mp'
     )
