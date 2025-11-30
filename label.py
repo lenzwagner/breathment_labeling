@@ -1,3 +1,5 @@
+from Utils.text_saver import *
+from Utils.result_comparator import compare_result_files
 import collections
 import sys
 import time
@@ -59,6 +61,13 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
     
     zeta: Tuple of binary deviation indicators for branch constraints (None if no constraints)
     epsilon: Tolerance for float comparisons (default 1e-9)
+    
+    TODO: Performance Optimization - Hash-based Deduplication
+          Current complexity is O(bucket_size) for dominance checks.
+          Consider implementing hash-based deduplication before bucket insertion:
+          - state_hash = hash((ai_count, hist, round(cost, 6), round(prog, 6)))
+          - Check if state_hash in seen_states -> O(1) lookup
+          - Benefits: Faster duplicate detection, reduces bucket iterations
     """
     # Bucket key includes zeta if branch constraints are active
     if zeta is not None:
@@ -232,9 +241,10 @@ def validate_final_column(col_data, s_req, MS, MIN_MS, theta_table):
 # --- 3. Labeling Algorithm ---
 
 def compute_lower_bound(current_progress, current_cost, target_progress,
-                       worker_id, current_time, end_time, gamma_k, pi_dict):
+                       worker_id, current_time, start_time, end_time, 
+                       gamma_k, pi_dict, obj_mode):
     """
-    Calculates OPTIMISTIC Lower Bound for Bound Pruning.
+    Calculates Lower Bound for Bound Pruning.
 
     Assumption: Maximum productivity (only therapists with efficiency = 1.0)
     This guarantees that we don't miss any optimal solutions.
@@ -244,17 +254,13 @@ def compute_lower_bound(current_progress, current_cost, target_progress,
     """
     import math
 
-    # 1. Minimum periods at MAXIMUM productivity (Therapist = 1.0)
-    remaining_progress = max(0.0, target_progress - current_progress)
-    min_periods_needed = int(math.ceil(remaining_progress))
+    # Time Cost is fixed for the specific column length (end_time - start_time + 1)
+    duration = end_time - start_time + 1
+    time_cost = duration * obj_mode
 
-    # 2. Available periods until end
-    periods_available = end_time - current_time
-    periods_to_use = min(min_periods_needed, periods_available)
-
-    # 3. Time costs (number of periods)
-    time_cost = periods_to_use
-
+    # Current cost contains the accumulated -pi values so far.
+    # We assume future -pi values are 0 (optimistic, since -pi >= 0).
+    
     lower_bound = current_cost + time_cost - gamma_k
 
     return lower_bound
@@ -427,7 +433,7 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
 
                         # BOUND PRUNING: Check if state is promising
                         if use_bound_pruning:
-                            lb = compute_lower_bound(prog, cost, s_k, j, t, tau, gamma_k, pi)
+                            lb = compute_lower_bound(prog, cost, s_k, j, t, r_k, tau, gamma_k, pi, obj_mode)
                             if lb >= 0:
                                 pruned_count_this_period += 1
                                 pruned_count_total += 1
@@ -725,21 +731,11 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                            pi_dict, workers, max_time, ms, min_ms, theta_lookup,
                            print_worker_selection=True, validate_columns=True, print_results=True,
                            use_bound_pruning=True, dominance_mode='bucket', max_columns_per_recipient=None,
-                           branch_constraints=None, branching_variant='mp'):
+                           branch_constraints=None, branching_variant='mp', n_workers=None):
     """
     Global Labeling Algorithm Function.
 
     Labeling Algorithm for Column Generation (Pricing Problem Solver)
-
-    ================================================================================
-    TODO / OPEN ISSUES:
-    ================================================================================
-
-    1. PERFORMANCE OPTIMIZATIONS (FUTURE)
-       - Bucket dominance is faster than global but still O(bucket_size)
-       - Consider: Hash-based deduplication before bucket insertion
-       - Consider: More aggressive state pruning strategies
-       - Consider: Parallel processing for multiple recipients
 
     ================================================================================
     
@@ -779,6 +775,11 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
         Maximum number of alternative optimal columns to store per recipient.
         None (default) = unlimited, stores all optimal columns.
         Example: 10 = store at most 10 alternative optimal schedules per recipient.
+    n_workers : int or None
+        Number of parallel workers for recipient processing.
+        None (default) = sequential processing (single core).
+        Example: 4 = use 4 parallel processes (recommended: number of CPU cores).
+        Note: Uses multiprocessing.Pool with Map-Reduce pattern (no race conditions).
         
     Returns:
     --------
@@ -805,46 +806,105 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
         'printed_dominance': {}  # {recipient_id: bool}
     }
     
-    for k in recipients_r:
-        gamma_val = gamma_dict.get(k, 0.0)
-        multiplier = obj_mode_dict.get(k, 1)
+    # === PARALLEL OR SEQUENTIAL PROCESSING ===
+    # Use Map-Reduce pattern to avoid race conditions on shared results list
+    
+    if n_workers is not None and n_workers > 1:
+        # --- PARALLEL PROCESSING (Map-Reduce Pattern) ---
+        from multiprocessing import Pool
         
-        # Pass entire branch_constraints dict - the solver will filter by recipient
-        cols = solve_pricing_for_recipient(k, recipients_r[k], recipients_s[k], 
-                                           gamma_val, multiplier, pi_dict, workers, max_time, ms, min_ms, theta_lookup,
-                                           use_bound_pruning=use_bound_pruning, dominance_mode=dominance_mode, branch_constraints=branch_constraints, branching_variant=branching_variant)
+        print(f"\n[PARALLEL MODE] Using {n_workers} workers for {len(recipients_r)} recipients")
         
-        if cols:
-            # Validate each column BEFORE storing - only keep valid ones
-            valid_cols = []
-            for col in cols:
-                validation_errors = validate_final_column(col, recipients_s[k], ms, min_ms, theta_lookup)
-                if not validation_errors:  # Only if NO errors
-                    valid_cols.append(col)
-            
-            # Remove duplicates based on x_vector (post-filter for bucket dominance edge cases)
-            unique_cols = []
-            seen_x_vectors = set()
-            for col in valid_cols:
-                x_vec_tuple = tuple(col['x_vector'])
-                if x_vec_tuple not in seen_x_vectors:
-                    seen_x_vectors.add(x_vec_tuple)
-                    unique_cols.append(col)
-            
-            # Store UNIQUE VALID optimal columns for this recipient (with optional limit)
-            if unique_cols:
-                # Apply max limit if specified
-                if max_columns_per_recipient is not None and len(unique_cols) > max_columns_per_recipient:
-                    cols_to_store = unique_cols[:max_columns_per_recipient]
-                else:
-                    cols_to_store = unique_cols
+        # MAP: Prepare arguments for each recipient
+        recipient_args = []
+        for k in recipients_r:
+            gamma_val = gamma_dict.get(k, 0.0)
+            multiplier = obj_mode_dict.get(k, 1)
+            recipient_args.append((
+                k, recipients_r[k], recipients_s[k], 
+                gamma_val, multiplier, pi_dict, workers, 
+                max_time, ms, min_ms, theta_lookup,
+                use_bound_pruning, dominance_mode, 
+                branch_constraints, branching_variant
+            ))
+        
+        # Execute in parallel (each process returns its own results)
+        with Pool(processes=n_workers) as pool:
+            all_cols = pool.starmap(solve_pricing_for_recipient, recipient_args)
+        
+        # REDUCE: Merge results sequentially (no race condition)
+        recipient_keys = list(recipients_r.keys())
+        for k, cols in zip(recipient_keys, all_cols):
+            if cols:
+                # Validation, deduplication, and storage (identical to sequential)
+                valid_cols = []
+                for col in cols:
+                    validation_errors = validate_final_column(col, recipients_s[k], ms, min_ms, theta_lookup)
+                    if not validation_errors:
+                        valid_cols.append(col)
                 
-                # Track: total valid found, unique, and actually stored
-                for col in cols_to_store:
-                    col['num_alternative_optimal'] = len(valid_cols)  # Total valid alternatives found
-                    col['num_unique'] = len(unique_cols)  # Unique alternatives (after dedup)
-                    col['num_stored'] = len(cols_to_store)  # How many are actually stored
-                results.extend(cols_to_store)  # Add the (limited) UNIQUE VALID optimal columns
+                unique_cols = []
+                seen_x_vectors = set()
+                for col in valid_cols:
+                    x_vec_tuple = tuple(col['x_vector'])
+                    if x_vec_tuple not in seen_x_vectors:
+                        seen_x_vectors.add(x_vec_tuple)
+                        unique_cols.append(col)
+                
+                if unique_cols:
+                    if max_columns_per_recipient is not None and len(unique_cols) > max_columns_per_recipient:
+                        cols_to_store = unique_cols[:max_columns_per_recipient]
+                    else:
+                        cols_to_store = unique_cols
+                    
+                    for col in cols_to_store:
+                        col['num_alternative_optimal'] = len(valid_cols)
+                        col['num_unique'] = len(unique_cols)
+                        col['num_stored'] = len(cols_to_store)
+                    results.extend(cols_to_store)
+    
+    else:
+        # --- SEQUENTIAL PROCESSING (Original Logic) ---
+        for k in recipients_r:
+            gamma_val = gamma_dict.get(k, 0.0)
+            multiplier = obj_mode_dict.get(k, 1)
+            
+            # Pass entire branch_constraints dict - the solver will filter by recipient
+            cols = solve_pricing_for_recipient(k, recipients_r[k], recipients_s[k], 
+                                               gamma_val, multiplier, pi_dict, workers, max_time, ms, min_ms, theta_lookup,
+                                               use_bound_pruning=use_bound_pruning, dominance_mode=dominance_mode, branch_constraints=branch_constraints, branching_variant=branching_variant)
+            
+            if cols:
+                # Validate each column BEFORE storing - only keep valid ones
+                valid_cols = []
+                for col in cols:
+                    validation_errors = validate_final_column(col, recipients_s[k], ms, min_ms, theta_lookup)
+                    if not validation_errors:  # Only if NO errors
+                        valid_cols.append(col)
+                
+                # Remove duplicates based on x_vector (post-filter for bucket dominance edge cases)
+                unique_cols = []
+                seen_x_vectors = set()
+                for col in valid_cols:
+                    x_vec_tuple = tuple(col['x_vector'])
+                    if x_vec_tuple not in seen_x_vectors:
+                        seen_x_vectors.add(x_vec_tuple)
+                        unique_cols.append(col)
+                
+                # Store UNIQUE VALID optimal columns for this recipient (with optional limit)
+                if unique_cols:
+                    # Apply max limit if specified
+                    if max_columns_per_recipient is not None and len(unique_cols) > max_columns_per_recipient:
+                        cols_to_store = unique_cols[:max_columns_per_recipient]
+                    else:
+                        cols_to_store = unique_cols
+                    
+                    # Track: total valid found, unique, and actually stored
+                    for col in cols_to_store:
+                        col['num_alternative_optimal'] = len(valid_cols)  # Total valid alternatives found
+                        col['num_unique'] = len(unique_cols)  # Unique alternatives (after dedup)
+                        col['num_stored'] = len(cols_to_store)  # How many are actually stored
+                    results.extend(cols_to_store)  # Add the (limited) UNIQUE VALID optimal columns
     
     runtime = time.time() - t0
     
@@ -1152,6 +1212,7 @@ if __name__ == "__main__":
     
     print("="*70)
     print("LABELING ALGORITHM - Column Generation Pricing")
+    start_time = time.time()
     print("="*70)
     if branch_constraints:
         print(f"Branch Constraints: {len(branch_constraints)} constraint(s) defined")
@@ -1178,9 +1239,10 @@ if __name__ == "__main__":
         print_results=True,
         use_bound_pruning=True,
         dominance_mode='bucket',
-        max_columns_per_recipient=10, # No limit for now, to see all alternatives
+        max_columns_per_recipient=20, # No limit for now, to see all alternatives
         branch_constraints=branch_constraints,
-        branching_variant='mp'
+        branching_variant='mp',
+        n_workers=None  # Set to e.g. 4 to enable parallel processing with 4 cores
     )
     
     # Comparison with fixed reference solution
@@ -1190,3 +1252,11 @@ if __name__ == "__main__":
         print("\n" + "="*70)
         print("INFO: No reference solution defined. Set REFERENCE_SOLUTION to enable regression testing.")
         print("="*70)
+
+    print(f"Runtime", time.time()-start_time)
+    
+    # Save results to text file
+    save_results_to_txt(results, filename="results/results.txt")
+    
+    # Compare result files
+    compare_result_files("results/results.txt", "results/results2.txt")
