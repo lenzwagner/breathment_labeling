@@ -1,7 +1,5 @@
 from Utils.text_saver import *
 from Utils.result_comparator import compare_result_files
-import collections
-import sys
 import time
 
 # --- 1. Input Data ---
