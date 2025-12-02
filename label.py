@@ -4,8 +4,8 @@ import time
 
 # --- 1. Input Data ---
 
-gamma = {2: 12.0, 6: 27.0, 8: 29.0, 13: 5.0, 15: 18.0, 16: 4.0, 18: 6.0, 19: 11.0, 20: 27.0, 23: 16.0, 28: 6.0, 31: 28.0, 32: 5.0, 35: 3.0, 36: 10.0, 37: 7.0, 38: 8.0, 44: 9.0, 45: 8.0, 47: 2.0, 48: 9.0, 49: 4.0, 50: 42.0, 51: 7.0, 53: 7.0, 54: 11.0, 60: 12.0, 61: 27.0, 64: 16.0, 65: 5.0, 66: 15.0, 67: 4.0, 68: 8.0, 73: 7.0, 74: 7.0, 76: 7.0, 77: 5.0, 78: 8.0, 80: 16.0, 84: 12.0}
-pi = {(1, 1): 0.0, (1, 2): 0.0, (1, 3): 0.0, (1, 4): 0.0, (1, 5): 0.0, (1, 6): 0.0, (1, 7): 0.0, (1, 8): 0.0, (1, 9): 0.0, (1, 10): 0.0, (1, 11): 0.0, (1, 12): 0.0, (1, 13): 0.0, (1, 14): 0.0, (1, 15): 0.0, (1, 16): 0.0, (1, 17): 0.0, (1, 18): 0.0, (1, 19): 0.0, (1, 20): 0.0, (1, 21): 0.0, (1, 22): 0.0, (1, 23): 0.0, (1, 24): 0.0, (1, 25): 0.0, (1, 26): 0.0, (1, 27): 0.0, (1, 28): 0.0, (1, 29): 0.0, (1, 30): 0.0, (1, 31): 0.0, (1, 32): 0.0, (1, 33): 0.0, (1, 34): 0.0, (1, 35): 0.0, (1, 36): 0.0, (1, 37): 0.0, (1, 38): 0.0, (1, 39): 0.0, (1, 40): 0.0, (1, 41): 0.0, (1, 42): 0.0, (2, 1): 0.0, (2, 2): 0.0, (2, 3): 0.0, (2, 4): 0.0, (2, 5): 0.0, (2, 6): 0.0, (2, 7): 0.0, (2, 8): 0.0, (2, 9): 0.0, (2, 10): 0.0, (2, 11): 0.0, (2, 12): 0.0, (2, 13): 0.0, (2, 14): 0.0, (2, 15): 0.0, (2, 16): 0.0, (2, 17): 0.0, (2, 18): 0.0, (2, 19): 0.0, (2, 20): 0.0, (2, 21): 0.0, (2, 22): 0.0, (2, 23): 0.0, (2, 24): 0.0, (2, 25): 0.0, (2, 26): 0.0, (2, 27): 0.0, (2, 28): 0.0, (2, 29): 0.0, (2, 30): 0.0, (2, 31): 0.0, (2, 32): 0.0, (2, 33): 0.0, (2, 34): 0.0, (2, 35): 0.0, (2, 36): 0.0, (2, 37): 0.0, (2, 38): 0.0, (2, 39): 0.0, (2, 40): 0.0, (2, 41): 0.0, (2, 42): 0.0, (3, 1): 0.0, (3, 2): 0.0, (3, 3): 0.0, (3, 4): 0.0, (3, 5): 0.0, (3, 6): 0.0, (3, 7): 0.0, (3, 8): 0.0, (3, 9): 0.0, (3, 10): 0.0, (3, 11): 0.0, (3, 12): 0.0, (3, 13): 0.0, (3, 14): 0.0, (3, 15): 0.0, (3, 16): 0.0, (3, 17): 0.0, (3, 18): 0.0, (3, 19): 0.0, (3, 20): 0.0, (3, 21): 0.0, (3, 22): 0.0, (3, 23): 0.0, (3, 24): 0.0, (3, 25): 0.0, (3, 26): 0.0, (3, 27): 0.0, (3, 28): 0.0, (3, 29): 0.0, (3, 30): 0.0, (3, 31): 0.0, (3, 32): 0.0, (3, 33): 0.0, (3, 34): 0.0, (3, 35): 0.0, (3, 36): 0.0, (3, 37): 0.0, (3, 38): 0.0, (3, 39): 0.0, (3, 40): 0.0, (3, 41): 0.0, (3, 42): 0.0}
+pi = {(1, 1): 0.0, (1, 2): 0.0, (1, 3): 0.0, (1, 4): 0.0, (1, 5): 0.0, (1, 6): -2.0, (1, 7): -2.0, (1, 8): 0.0, (1, 9): 0.0, (1, 10): 0.0, (1, 11): 0.0, (1, 12): 0.0, (1, 13): 0.0, (1, 14): 0.0, (1, 15): 0.0, (1, 16): -27.0, (1, 17): 0.0, (1, 18): 0.0, (1, 19): 0.0, (1, 20): 0.0, (1, 21): -27.0, (1, 22): 0.0, (1, 23): 0.0, (1, 24): 0.0, (1, 25): 0.0, (1, 26): 0.0, (1, 27): 0.0, (1, 28): 0.0, (1, 29): 0.0, (1, 30): 0.0, (1, 31): 0.0, (1, 32): 0.0, (1, 33): 0.0, (1, 34): 0.0, (1, 35): 0.0, (1, 36): 0.0, (1, 37): 0.0, (1, 38): 0.0, (1, 39): 0.0, (1, 40): 0.0, (1, 41): 0.0, (1, 42): 0.0, (2, 1): 0.0, (2, 2): -2.0, (2, 3): 0.0, (2, 4): 0.0, (2, 5): 0.0, (2, 6): 0.0, (2, 7): -1.0, (2, 8): -1.0, (2, 9): -1.0, (2, 10): 0.0, (2, 11): 0.0, (2, 12): 0.0, (2, 13): 0.0, (2, 14): 0.0, (2, 15): 0.0, (2, 16): 0.0, (2, 17): 0.0, (2, 18): 0.0, (2, 19): -16.0, (2, 20): 0.0, (2, 21): 0.0, (2, 22): -27.0, (2, 23): 0.0, (2, 24): 0.0, (2, 25): 0.0, (2, 26): 0.0, (2, 27): 0.0, (2, 28): 0.0, (2, 29): 0.0, (2, 30): 0.0, (2, 31): 0.0, (2, 32): 0.0, (2, 33): 0.0, (2, 34): 0.0, (2, 35): 0.0, (2, 36): 0.0, (2, 37): 0.0, (2, 38): 0.0, (2, 39): 0.0, (2, 40): 0.0, (2, 41): 0.0, (2, 42): 0.0, (3, 1): 0.0, (3, 2): -2.0, (3, 3): 0.0, (3, 4): 0.0, (3, 5): 0.0, (3, 6): -1.0, (3, 7): 0.0, (3, 8): 0.0, (3, 9): -2.0, (3, 10): -1.0, (3, 11): 0.0, (3, 12): 0.0, (3, 13): 0.0, (3, 14): 0.0, (3, 15): -16.0, (3, 16): -27.0, (3, 17): 0.0, (3, 18): 0.0, (3, 19): 0.0, (3, 20): 0.0, (3, 21): 0.0, (3, 22): 0.0, (3, 23): -16.0, (3, 24): 0.0, (3, 25): 0.0, (3, 26): 0.0, (3, 27): 0.0, (3, 28): 0.0, (3, 29): 0.0, (3, 30): 0.0, (3, 31): 0.0, (3, 32): 0.0, (3, 33): 0.0, (3, 34): 0.0, (3, 35): 0.0, (3, 36): 0.0, (3, 37): 0.0, (3, 38): 0.0, (3, 39): 0.0, (3, 40): 0.0, (3, 41): 0.0, (3, 42): 0.0}
+gamma = {2: 12.0, 6: 27.0, 8: 16.0, 13: 0.0, 15: 0.0, 16: 0.0, 18: 0.0, 19: 0.0, 20: 27.0, 23: 16.0, 28: 0.0, 31: 27.0, 32: 0.0, 35: 0.0, 36: 0.0, 37: 0.0, 38: 8.0, 44: 0.0, 45: 0.0, 47: 0.0, 48: 9.0, 49: 0.0, 50: 10.0, 51: 0.0, 53: 0.0, 54: 10.0, 60: 2.0, 61: 16.0, 64: 9.0, 65: 0.0, 66: 0.0, 67: 0.0, 68: 0.0, 73: 16.0, 74: 0.0, 76: 0.0, 77: 0.0, 78: 0.0, 80: 16.0, 84: 10.0}
 
 s_i = {1: 17, 2: 9, 3: 13, 4: 17, 5: 4, 6: 6, 7: 5, 8: 9, 9: 5, 10: 8, 11: 5, 12: 9, 13: 5, 14: 5, 15: 6, 16: 7, 17: 4, 18: 5, 19: 7, 20: 7, 21: 8, 22: 14, 23: 10, 24: 10, 25: 8, 26: 6, 27: 8, 28: 5, 29: 5, 30: 5, 31: 6, 32: 4, 33: 4, 34: 4, 35: 3, 36: 8, 37: 4, 38: 5, 39: 10, 40: 8, 41: 9, 42: 8, 43: 9, 44: 7, 45: 4, 46: 10, 47: 2, 48: 6, 49: 7, 50: 7, 51: 6, 52: 10, 53: 3, 54: 7, 55: 6, 56: 6, 57: 7, 58: 9, 59: 7, 60: 5, 61: 4, 62: 4, 63: 2, 64: 6, 65: 10, 66: 8, 67: 3, 68: 7, 69: 5, 70: 8, 71: 4, 72: 7, 73: 6, 74: 6, 75: 3, 76: 5, 77: 7, 78: 7, 79: 3, 80: 6, 81: 4, 82: 6, 83: 11, 84: 7}
 r_i = {1: -8, 2: 2, 3: -4, 4: -2, 5: -4, 6: 16, 7: -16, 8: 14, 9: -35, 10: -12, 11: -10, 12: -25, 13: 22, 14: -12, 15: 25, 16: 39, 17: -17, 18: 33, 19: 27, 20: 16, 21: -34, 22: 0, 23: 12, 24: -13, 25: -18, 26: -12, 27: -16, 28: 25, 29: -9, 30: -3, 31: 15, 32: 38, 33: -13, 34: -33, 35: 40, 36: 29, 37: 25, 38: 5, 39: -18, 40: -24, 41: -12, 42: 0, 43: -31, 44: 18, 45: 21, 46: -35, 47: 30, 48: 2, 49: 36, 50: 1, 51: 26, 52: -1, 53: 12, 54: 3, 55: -34, 56: -25, 57: -18, 58: -4, 59: -7, 60: 6, 61: 16, 62: -5, 63: -11, 64: 4, 65: 38, 66: 25, 67: 15, 68: 28, 69: -18, 70: -28, 71: -29, 72: -26, 73: 12, 74: 36, 75: -27, 76: 18, 77: 38, 78: 24, 79: -24, 80: 14, 81: -16, 82: -23, 83: -35, 84: 5}
@@ -22,8 +22,6 @@ WORKERS = [1, 2, 3]
 theta_lookup = [0.2 + 0.01 * k for k in range(50)]
 theta_lookup = [min(x, 1.0) for x in theta_lookup]
 
-
-# --- 2. Helper Functions ---
 
 # --- 2. Helper Functions ---
 
@@ -48,18 +46,18 @@ def check_strict_feasibility(history, next_val, MS, MIN_MS):
 def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id, pruning_stats, dominance_mode='bucket', zeta=None, epsilon=1e-9):
     """
     Adds a state to buckets, applying dominance rules.
-    
-    buckets structure: 
+
+    buckets structure:
       - Key: (ai_count, hist) or (ai_count, hist, zeta)
       - Value: list_of_states [(cost, prog, path), ...]
-    
+
     dominance_mode:
       - 'bucket': Compares only within same (ai_count, hist, zeta)
       - 'global': Compares across all buckets (ai >= ai', hist >= hist', zeta >= zeta')
-    
+
     zeta: Tuple of binary deviation indicators for branch constraints (None if no constraints)
     epsilon: Tolerance for float comparisons (default 1e-9)
-    
+
     TODO: Performance Optimization - Hash-based Deduplication
           Current complexity is O(bucket_size) for dominance checks.
           Consider implementing hash-based deduplication before bucket insertion:
@@ -72,25 +70,25 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
         bucket_key = (ai_count, hist, zeta)
     else:
         bucket_key = (ai_count, hist)
-    
+
     # --- 1. GLOBAL PRUNING CHECK (Only in Global Mode) ---
     # Check if the NEW state is dominated by ANYONE
     if dominance_mode == 'global':
         is_dominated_globally = False
         dominator_global = None
-        
+
         for (ai_other, hist_other), other_list in buckets.items():
             # Another bucket can only dominate if it is "better/equal" in AI & Hist
             # We need: ai_other >= ai_count AND hist_other >= hist
-            
+
             # AI Check
             if ai_other < ai_count:
                 continue
-                
+
             # Hist Check (component-wise >=)
             if len(hist_other) != len(hist):
                 continue
-            
+
             hist_better = True
             for h1, h2 in zip(hist_other, hist):
                 if h1 < h2: # h1 muss >= h2 sein
@@ -98,7 +96,7 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
                     break
             if not hist_better:
                 continue
-            
+
             # If we are here, the other bucket is "structurally" better or equal.
             # Now we check Cost & Prog in this bucket
             for c_old, p_old, _ in other_list:
@@ -107,10 +105,10 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
                     is_dominated_globally = True
                     dominator_global = (c_old, p_old, ai_other, hist_other)
                     break
-            
+
             if is_dominated_globally:
                 break
-        
+
         if is_dominated_globally:
             pruning_stats['dominance'] += 1
             if not pruning_stats['printed_dominance'].get(recipient_id, False):
@@ -122,44 +120,44 @@ def add_state_to_buckets(buckets, cost, prog, ai_count, hist, path, recipient_id
     # --- 2. BUCKET MANAGEMENT ---
     if bucket_key not in buckets:
         buckets[bucket_key] = []
-    
+
     bucket_list = buckets[bucket_key]
 
     # --- 3. LOCAL DOMINANCE (Within the Bucket) ---
     # Even in Global Mode we do this to keep our own bucket clean
-    
+
     # Check if new state is dominated by existing state in the SAME bucket
     is_dominated = False
     dominator = None
-    
+
     for c_old, p_old, _ in bucket_list:
         # Use epsilon for float comparison: c_old <= cost + eps AND p_old >= prog - eps
         if c_old <= cost + epsilon and p_old >= prog - epsilon:
             is_dominated = True
             dominator = (c_old, p_old)
             break
-    
+
     if is_dominated:
         pruning_stats['dominance'] += 1
         if not pruning_stats['printed_dominance'].get(recipient_id, False):
             print(f"    [DOMINANCE BUCKET] Recipient {recipient_id}: Pruned new state (C={cost:.2f}, P={prog:.2f})")
             print(f"                       by same bucket (C={dominator[0]:.2f}, P={dominator[1]:.2f})")
             pruning_stats['printed_dominance'][recipient_id] = True
-        return 
-    
+        return
+
     # --- 4. CLEANUP (Only important in Global Mode, but also good locally) ---
     # Remove existing states that are dominated by the new one
-    
+
     new_bucket_list = []
-    
+
     for c_old, p_old, path_old in bucket_list:
         # Use epsilon for float comparison: cost <= c_old + eps AND prog >= p_old - eps
         if cost <= c_old + epsilon and prog >= p_old - epsilon:
             pruning_stats['dominance'] += 1
             # We skip print here for clarity, or only once
-            continue 
+            continue
         new_bucket_list.append((c_old, p_old, path_old))
-    
+
     new_bucket_list.append((cost, prog, path))
     buckets[bucket_key] = new_bucket_list
 
@@ -238,15 +236,13 @@ def validate_final_column(col_data, s_req, MS, MIN_MS, theta_table):
 
 # --- 3. Labeling Algorithm ---
 
-def compute_lower_bound(current_progress, current_cost, target_progress,
-                       worker_id, current_time, start_time, end_time, 
-                       gamma_k, pi_dict, obj_mode):
+def compute_lower_bound(current_cost, start_time, end_time, gamma_k, obj_mode):
     """
     Calculates Lower Bound for Bound Pruning.
 
     Assumption: Maximum productivity (only therapists with efficiency = 1.0)
     This guarantees that we don't miss any optimal solutions.
-
+    compute_lower_bound(cost, r_k, tau, gamma_k, obj_mode)
     Returns:
         float: Minimum achievable final Reduced Cost (optimistic)
     """
@@ -258,7 +254,7 @@ def compute_lower_bound(current_progress, current_cost, target_progress,
 
     # Current cost contains the accumulated -pi values so far.
     # We assume future -pi values are 0 (optimistic, since -pi >= 0).
-    
+
     lower_bound = current_cost + time_cost - gamma_k
 
     return lower_bound
@@ -310,12 +306,12 @@ def compute_candidate_workers(workers, r_k, tau_max, pi_dict):
     return candidate_workers
 
 
-def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_dict, workers, max_time, ms, min_ms, theta_lookup, 
+def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_dict, workers, max_time, ms, min_ms, theta_lookup,
                                 use_bound_pruning=True, dominance_mode='bucket', branch_constraints=None, branching_variant='mp'):
     best_reduced_cost = float('inf')
     best_columns = []
     epsilon = 1e-9
-    
+
     pruning_stats = {
         'lb': 0,
         'dominance': 0,
@@ -323,6 +319,18 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
     }
 
     time_until_end = MAX_TIME - r_k + 1
+
+    # --- DEBUG: Print Duals for Recipient 6 ---
+    if recipient_id == 6:
+        print(f"\n[DEBUG] Dual Values (pi) for Recipient {recipient_id} (r_k={r_k} to {MAX_TIME}):")
+        for t in range(r_k, MAX_TIME + 1):
+            row_vals = []
+            for w in workers:
+                val = pi_dict.get((w, t), 0.0)
+                row_vals.append(f"W{w}:{val:.2f}")
+            print(f"  t={t}: " + ", ".join(row_vals))
+        print("-" * 60 + "\n")
+
 
     # Worker Dominance Pre-Elimination
     candidate_workers = compute_candidate_workers(WORKERS, r_k, MAX_TIME, pi)
@@ -333,14 +341,14 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
         print(f"Recipient {recipient_id:2d}: Candidate workers = {candidate_workers} (eliminated {eliminated_workers})")
     else:
         print(f"Recipient {recipient_id:2d}: Candidate workers = {candidate_workers} (no dominance)")
-    
+
     # --- Parse Branch Constraints (MP Branching) ---
     # For MP branching: branch_constraints contains "original_schedule" that must be EXCLUDED
     # We need to track deviation from forbidden schedules via ζ_t vector
     # Only applies when direction="left" (left branch = forbid)
     forbidden_schedules = []
     use_branch_constraints = False
-    
+
     if branch_constraints is not None:
         # branch_constraints can be a dict with multiple keys (constraint IDs)
         # Each constraint has: profile, direction, original_schedule
@@ -348,11 +356,11 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
             # Only process if this constraint is for our recipient
             if constraint_data.get("profile") != recipient_id:
                 continue
-            
+
             # Only process if direction is "left" (forbid this schedule)
             if constraint_data.get("direction") != "left":
                 continue
-            
+
             # --- MP Branching Logic ---
             if branching_variant == 'mp':
                 # Check if this is MP branching (has "original_schedule" key)
@@ -366,18 +374,18 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
                         # We only care about (worker, interval) -> value mapping
                         profile, worker, interval, shift = key
                         forbidden_schedule[(worker, interval)] = val
-                    
+
                     forbidden_schedules.append({
                         "schedule": forbidden_schedule,
                         "constraint_key": constraint_key, # Keep for debugging/tracking
                         "direction": constraint_data.get("direction", "left") # Keep for debugging/tracking
                         # "bound": constraint_data.get("bound") # Not strictly needed for equality check
                     })
-            
+
             # --- SP Branching Logic (Placeholder) ---
             elif branching_variant == 'sp':
                 pass # Initialize empty function / logic for SP branching here
-        
+
         if use_branch_constraints:
             print(f"  [MP BRANCHING] {len(forbidden_schedules)} no-good cut(s) active for recipient {recipient_id}")
 
@@ -403,7 +411,7 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
             # Initialize deviation vector ζ_t for branch constraints
             num_cuts = len(forbidden_schedules)
             initial_zeta = tuple([0] * num_cuts) if use_branch_constraints else None
-            
+
             current_states = {}
             # Initialize with start state
             initial_history = (1,) # First action is always 1 (Therapist)
@@ -425,13 +433,13 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
                     else:
                         ai_count, hist = bucket_key
                         zeta = None
-                    
+
                     # Iterate over all states in the bucket
                     for cost, prog, path in bucket_list:
 
                         # BOUND PRUNING: Check if state is promising
                         if use_bound_pruning:
-                            lb = compute_lower_bound(prog, cost, s_k, j, t, r_k, tau, gamma_k, pi, obj_mode)
+                            lb = compute_lower_bound(cost, r_k, tau, gamma_k, obj_mode)
                             if lb >= 0:
                                 pruned_count_this_period += 1
                                 pruned_count_total += 1
@@ -454,7 +462,7 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
                             # the most recent MS-1 actions, regardless of left-to-right or right-to-left order.
                             new_hist_ther = (hist + (1,))
                             if len(new_hist_ther) > MS - 1: new_hist_ther = new_hist_ther[-(MS - 1):]
-                            
+
                             # Update deviation vector ζ_t if branch constraints are active
                             new_zeta_ther = zeta
                             if use_branch_constraints:
@@ -478,7 +486,7 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
                             # History Shift: Same logic as Therapist (see comment above)
                             new_hist_ai = (hist + (0,))
                             if len(new_hist_ai) > MS - 1: new_hist_ai = new_hist_ai[-(MS - 1):]
-                            
+
                             # Update deviation vector ζ_t if branch constraints are active
                             new_zeta_ai = zeta
                             if use_branch_constraints:
@@ -509,9 +517,9 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
                 else:
                     ai_count, hist = bucket_key
                     zeta = None
-                    
+
                 for cost, prog, path in bucket_list:
-                    
+
                     # We collect possible end steps for this state
                     possible_moves = []
 
@@ -539,7 +547,7 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
 
                         final_path = path + [move]
                         condition_met = (final_prog >= s_k - epsilon)
-                        
+
                         # Update final zeta for this move
                         final_zeta = zeta
                         if use_branch_constraints:
@@ -551,7 +559,7 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
                                     if forbidden_val is not None and forbidden_val != move:
                                         final_zeta[cut_idx] = 1  # Deviated!
                             final_zeta = tuple(final_zeta)
-                        
+
                         # Calculate reduced cost early for debug printing
                         temp_reduced_cost = None
                         if condition_met or is_timeout_scenario:
@@ -562,7 +570,7 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
                         if use_branch_constraints:
                             if temp_reduced_cost is not None:
                                 print(f"    [CHECK] Zeta {final_zeta} | RC: {temp_reduced_cost:.6f}")
-                            
+
                             if not all(z == 1 for z in final_zeta):
                                 # This path hasn't deviated from all forbidden schedules -> REJECT
                                 print(f"    [PRUNED] Schedule matches forbidden branch constraint. "
@@ -594,7 +602,7 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
                                 best_columns = [col_candidate]
                             elif abs(reduced_cost - best_reduced_cost) < epsilon:
                                 best_columns.append(col_candidate)
-            
+
             # Debug Output: Bound Pruning Statistics
             if pruned_count_total > 0:
                 print(f"    Worker {j}, tau={tau}: Pruned {pruned_count_total} states by Lower Bound")
@@ -607,10 +615,10 @@ def solve_pricing_for_recipient(recipient_id, r_k, s_k, gamma_k, obj_mode, pi_di
 def create_reference_solution(results):
     """
     Creates a sorted reference solution from the results.
-    
+
     Format: List of (recipient_id, reduced_cost) sorted by recipient_id
     Reduced costs rounded to 2 decimal places.
-    
+
     Returns:
         list: [(recipient_id, reduced_cost), ...] sorted by recipient_id
     """
@@ -619,40 +627,40 @@ def create_reference_solution(results):
         recipient_id = res['k']
         reduced_cost = round(res['reduced_cost'], 2)
         solution.append((recipient_id, reduced_cost))
-    
+
     # Sort by recipient_id
     solution.sort(key=lambda x: x[0])
-    
+
     return solution
 
 
 def compare_solutions(current_results, reference_solution):
     """
     Compares current results with reference solution.
-    
+
     Returns:
         tuple: (is_identical, differences)
             - is_identical: bool, True if identical
             - differences: list of dict with deviations
     """
     current_solution = create_reference_solution(current_results)
-    
+
     # Create dictionaries for easy comparison
     current_dict = {k: rc for k, rc in current_solution}
     reference_dict = {k: rc for k, rc in reference_solution}
-    
+
     differences = []
     all_recipients = set(current_dict.keys()) | set(reference_dict.keys())
-    
+
     for recipient_id in sorted(all_recipients):
         current_rc = current_dict.get(recipient_id, None)
         reference_rc = reference_dict.get(recipient_id, None)
-        
+
         # MODIFIED: Only compare if reference expects a NEGATIVE reduced cost.
         # In Column Generation, we don't care about non-negative solutions (0.00 or positive).
         if reference_rc is not None and reference_rc >= -1e-9:
             continue
-        
+
         if current_rc is None:
             differences.append({
                 'recipient': recipient_id,
@@ -665,7 +673,7 @@ def compare_solutions(current_results, reference_solution):
             # These are irrelevant for Column Generation.
             if current_rc >= -1e-9:
                 continue
-                
+
             differences.append({
                 'recipient': recipient_id,
                 'status': 'EXTRA',
@@ -680,9 +688,9 @@ def compare_solutions(current_results, reference_solution):
                 'reference': reference_rc,
                 'delta': current_rc - reference_rc
             })
-    
+
     is_identical = len(differences) == 0
-    
+
     return is_identical, differences
 
 
@@ -691,11 +699,11 @@ def print_solution_comparison(current_results, reference_solution):
     Prints comparison between current solution and reference.
     """
     is_identical, differences = compare_solutions(current_results, reference_solution)
-    
+
     print("\n" + "="*70)
     print("SOLUTION VALIDATION")
     print("="*70)
-    
+
     if is_identical:
         print("✅ IDENTICAL - All Reduced Costs match the reference!")
         current_solution = create_reference_solution(current_results)
@@ -706,7 +714,7 @@ def print_solution_comparison(current_results, reference_solution):
         for diff in differences:
             recipient_id = diff['recipient']
             status = diff['status']
-            
+
             if status == 'MISSING':
                 print(f"  Recipient {recipient_id:2d}: MISSING in current solution")
                 print(f"    Reference: {diff['reference']:.2f}")
@@ -719,13 +727,13 @@ def print_solution_comparison(current_results, reference_solution):
                 print(f"    Reference: {diff['reference']:8.2f}")
                 print(f"    Delta:     {diff['delta']:8.2f}")
             print()
-    
+
     print("="*70)
 
 
 # --- 5. Global Labeling Algorithm Function ---
 
-def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict, 
+def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict,
                            pi_dict, workers, max_time, ms, min_ms, theta_lookup,
                            print_worker_selection=True, validate_columns=True, print_results=True,
                            use_bound_pruning=True, dominance_mode='bucket', max_columns_per_recipient=None,
@@ -736,7 +744,7 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
     Labeling Algorithm for Column Generation (Pricing Problem Solver)
 
     ================================================================================
-    
+
     Parameters:
     -----------
     recipients_r : dict
@@ -778,17 +786,17 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
         None (default) = sequential processing (single core).
         Example: 4 = use 4 parallel processes (recommended: number of CPU cores).
         Note: Uses multiprocessing.Pool with Map-Reduce pattern (no race conditions).
-        
+
     Returns:
     --------
     list of dict
         List of best columns (can be multiple per recipient if alternatives exist)
     """
     import time
-    
+
     t0 = time.time()
     results = []
-    
+
     # Set global variables (for helper functions)
     global MAX_TIME, MS, MIN_MS, WORKERS, pi
     MAX_TIME = max_time
@@ -796,40 +804,40 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
     MIN_MS = min_ms
     WORKERS = workers
     pi = pi_dict
-    
+
     # Pruning Statistics
     pruning_stats = {
         'lb': 0,
         'dominance': 0,
         'printed_dominance': {}  # {recipient_id: bool}
     }
-    
+
     # === PARALLEL OR SEQUENTIAL PROCESSING ===
     # Use Map-Reduce pattern to avoid race conditions on shared results list
-    
+
     if n_workers is not None and n_workers > 1:
         # --- PARALLEL PROCESSING (Map-Reduce Pattern) ---
         from multiprocessing import Pool
-        
+
         print(f"\n[PARALLEL MODE] Using {n_workers} workers for {len(recipients_r)} recipients")
-        
+
         # MAP: Prepare arguments for each recipient
         recipient_args = []
         for k in recipients_r:
             gamma_val = gamma_dict.get(k, 0.0)
             multiplier = obj_mode_dict.get(k, 1)
             recipient_args.append((
-                k, recipients_r[k], recipients_s[k], 
-                gamma_val, multiplier, pi_dict, workers, 
+                k, recipients_r[k], recipients_s[k],
+                gamma_val, multiplier, pi_dict, workers,
                 max_time, ms, min_ms, theta_lookup,
-                use_bound_pruning, dominance_mode, 
+                use_bound_pruning, dominance_mode,
                 branch_constraints, branching_variant
             ))
-        
+
         # Execute in parallel (each process returns its own results)
         with Pool(processes=n_workers) as pool:
             all_cols = pool.starmap(solve_pricing_for_recipient, recipient_args)
-        
+
         # REDUCE: Merge results sequentially (no race condition)
         recipient_keys = list(recipients_r.keys())
         for k, cols in zip(recipient_keys, all_cols):
@@ -840,7 +848,7 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                     validation_errors = validate_final_column(col, recipients_s[k], ms, min_ms, theta_lookup)
                     if not validation_errors:
                         valid_cols.append(col)
-                
+
                 unique_cols = []
                 seen_x_vectors = set()
                 for col in valid_cols:
@@ -848,30 +856,30 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                     if x_vec_tuple not in seen_x_vectors:
                         seen_x_vectors.add(x_vec_tuple)
                         unique_cols.append(col)
-                
+
                 if unique_cols:
                     if max_columns_per_recipient is not None and len(unique_cols) > max_columns_per_recipient:
                         cols_to_store = unique_cols[:max_columns_per_recipient]
                     else:
                         cols_to_store = unique_cols
-                    
+
                     for col in cols_to_store:
                         col['num_alternative_optimal'] = len(valid_cols)
                         col['num_unique'] = len(unique_cols)
                         col['num_stored'] = len(cols_to_store)
                     results.extend(cols_to_store)
-    
+
     else:
         # --- SEQUENTIAL PROCESSING (Original Logic) ---
         for k in recipients_r:
             gamma_val = gamma_dict.get(k, 0.0)
             multiplier = obj_mode_dict.get(k, 1)
-            
+
             # Pass entire branch_constraints dict - the solver will filter by recipient
-            cols = solve_pricing_for_recipient(k, recipients_r[k], recipients_s[k], 
+            cols = solve_pricing_for_recipient(k, recipients_r[k], recipients_s[k],
                                                gamma_val, multiplier, pi_dict, workers, max_time, ms, min_ms, theta_lookup,
                                                use_bound_pruning=use_bound_pruning, dominance_mode=dominance_mode, branch_constraints=branch_constraints, branching_variant=branching_variant)
-            
+
             if cols:
                 # Validate each column BEFORE storing - only keep valid ones
                 valid_cols = []
@@ -879,7 +887,7 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                     validation_errors = validate_final_column(col, recipients_s[k], ms, min_ms, theta_lookup)
                     if not validation_errors:  # Only if NO errors
                         valid_cols.append(col)
-                
+
                 # Remove duplicates based on x_vector (post-filter for bucket dominance edge cases)
                 unique_cols = []
                 seen_x_vectors = set()
@@ -888,7 +896,7 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                     if x_vec_tuple not in seen_x_vectors:
                         seen_x_vectors.add(x_vec_tuple)
                         unique_cols.append(col)
-                
+
                 # Store UNIQUE VALID optimal columns for this recipient (with optional limit)
                 if unique_cols:
                     # Apply max limit if specified
@@ -896,20 +904,20 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                         cols_to_store = unique_cols[:max_columns_per_recipient]
                     else:
                         cols_to_store = unique_cols
-                    
+
                     # Track: total valid found, unique, and actually stored
                     for col in cols_to_store:
                         col['num_alternative_optimal'] = len(valid_cols)  # Total valid alternatives found
                         col['num_unique'] = len(unique_cols)  # Unique alternatives (after dedup)
                         col['num_stored'] = len(cols_to_store)  # How many are actually stored
                     results.extend(cols_to_store)  # Add the (limited) UNIQUE VALID optimal columns
-    
+
     runtime = time.time() - t0
-    
+
     if print_results:
         print(f"\nRuntime: {runtime:.4f}s")
         print(f"Pruning Stats: Lower Bound = {pruning_stats['lb']}, State Dominance = {pruning_stats['dominance']}")
-        
+
         # Group results by recipient to show alternatives
         results_by_recipient = {}
         for res in results:
@@ -917,40 +925,40 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
             if k not in results_by_recipient:
                 results_by_recipient[k] = []
             results_by_recipient[k].append(res)
-        
+
         print(f"\n--- Final Results ({len(results)} optimal schedules for {len(results_by_recipient)} recipients) ---")
-        
+
         for k in sorted(results_by_recipient.keys()):
             recipient_schedules = results_by_recipient[k]
             num_alternatives = len(recipient_schedules)
-            
+
             # Count active cuts for this recipient
             num_active_cuts = 0
             if branch_constraints:
                 for constraint_data in branch_constraints.values():
                     if constraint_data.get("profile") == k and constraint_data.get("direction") == "left":
                         num_active_cuts += 1
-            
+
             # Show only the FIRST schedule, but display the count
             res = recipient_schedules[0]
-            
+
             print(f"\nRecipient {k}:")
             print(f"  Reduced Cost: {res['reduced_cost']:.6f}")
             print(f"  Alternative optimal schedules: {num_alternatives}")
             if num_active_cuts > 0:
                 print(f"  Active branch cuts: {num_active_cuts}")
             print(f"  Worker: {res['worker']}, Interval: {res['start']}-{res['end']}")
-            
+
             vec = res['x_vector']
             time_indices = [(i % max_time) + 1 for i, x in enumerate(vec) if x > 0.5]
             print(f"  Active Time Steps (Day 1-{max_time}): {time_indices}")
-            
+
             last_day_val = res['path_pattern'][-1]
             last_day_type = "Therapist" if last_day_val == 1 else "App"
             print(f"  Last Session Type: {last_day_type} (Val: {last_day_val})")
-            
+
             if validate_columns:
-                validation_errors = validate_final_column(res, recipients_s[res['k']], 
+                validation_errors = validate_final_column(res, recipients_s[res['k']],
                                                          ms, min_ms, theta_lookup)
                 if validation_errors:
                     print("  [!] NOT CHECKED CONSTRAINTS / VIOLATIONS:")
@@ -958,15 +966,15 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                         print(f"      - {err}")
                 else:
                     print("  [OK] All constraints satisfied.")
-    
+
     # Final comprehensive validation of ALL found schedules
     print("\n" + "="*70)
     print("FINAL VALIDATION SUMMARY")
     print("="*70)
-    
+
     total_violations = 0
     recipients_with_violations = []
-    
+
     # Group by recipient for uniqueness check
     results_by_recipient = {}
     for res in results:
@@ -974,9 +982,9 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
         if k not in results_by_recipient:
             results_by_recipient[k] = []
         results_by_recipient[k].append(res)
-    
+
     for res in results:
-        validation_errors = validate_final_column(res, recipients_s[res['k']], 
+        validation_errors = validate_final_column(res, recipients_s[res['k']],
                                                   ms, min_ms, theta_lookup)
         if validation_errors:
             total_violations += len(validation_errors)
@@ -985,30 +993,30 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
                 print(f"\n❌ Recipient {res['k']} has {len(validation_errors)} violation(s):")
                 for err in validation_errors:
                     print(f"   - {err}")
-    
+
     # X-Vector Uniqueness Check
     print("\n" + "-"*70)
     print("X-VECTOR UNIQUENESS CHECK (per Recipient)")
     print("-"*70)
-    
+
     total_x_vector_duplicates = 0
     recipients_with_x_duplicates = []
-    
+
     for k in sorted(results_by_recipient.keys()):
         recipient_cols = results_by_recipient[k]
-        
+
         # Convert x_vectors to tuples for set comparison
         x_vectors = [tuple(col['x_vector']) for col in recipient_cols]
         unique_x_vectors = set(x_vectors)
-        
+
         num_duplicates = len(x_vectors) - len(unique_x_vectors)
-        
+
         if num_duplicates > 0:
             total_x_vector_duplicates += num_duplicates
             recipients_with_x_duplicates.append(k)
             if print_results:
                 print(f"❌ Recipient {k}: {len(recipient_cols)} columns, {len(unique_x_vectors)} unique x_vectors ({num_duplicates} duplicates)")
-    
+
     if total_x_vector_duplicates == 0:
         print(f"✅ ALL x_vectors are UNIQUE per recipient!")
         print(f"   Total columns checked: {len(results)}")
@@ -1016,9 +1024,9 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
     else:
         print(f"❌ FOUND {total_x_vector_duplicates} x_vector DUPLICATES!")
         print(f"   Affected recipients: {recipients_with_x_duplicates}")
-    
+
     print("\n" + "-"*70)
-    
+
     if total_violations == 0:
         print(f"✅ ALL {len(results)} schedules are VALID!")
         print(f"   - All rolling window constraints satisfied (MS={ms}, MIN_MS={min_ms})")
@@ -1028,9 +1036,9 @@ def run_labeling_algorithm(recipients_r, recipients_s, gamma_dict, obj_mode_dict
         print(f"❌ FOUND {total_violations} VIOLATIONS in {len(recipients_with_violations)} recipients!")
         print(f"   Recipients with violations: {recipients_with_violations}")
         print(f"   WARNING: These schedules may be INFEASIBLE!")
-    
+
     print("="*70)
-    
+
     return results
 
 
@@ -1071,11 +1079,11 @@ if __name__ == "__main__":
         (80,  -29.00),
         (84,   -3.00),
     ]
-    
+
     # ========================================================================
     # BRANCH CONSTRAINTS DEFINITION
     # ========================================================================
-    
+
     class MPVariableBranching:
         def __init__(self, profile_n, column_a, bound, direction, original_schedule=None):
             self.profile = profile_n
@@ -1200,14 +1208,14 @@ if __name__ == "__main__":
             "bound": constraint.bound,
             "original_schedule": constraint.original_schedule
         }
-    
+
     # To disable all constraints, just use:
     # branch_constraints = {}
-    
+
     # ========================================================================
     # RUN LABELING ALGORITHM
     # ========================================================================
-    
+
     print("="*70)
     print("LABELING ALGORITHM - Column Generation Pricing")
     start_time = time.time()
@@ -1220,7 +1228,7 @@ if __name__ == "__main__":
         print("Branch Constraints: None (empty dict)")
     print("="*70)
     print()
-    
+
     results = run_labeling_algorithm(
         recipients_r=r_i,
         recipients_s=s_i,
@@ -1240,9 +1248,9 @@ if __name__ == "__main__":
         max_columns_per_recipient=20, # No limit for now, to see all alternatives
         branch_constraints=branch_constraints,
         branching_variant='mp',
-        n_workers=4 # Set to e.g. 4 to enable parallel processing with 4 cores
+        n_workers=None # Set to e.g. 4 to enable parallel processing with 4 cores
     )
-    
+
     # Comparison with fixed reference solution
     if REFERENCE_SOLUTION is not None:
         print_solution_comparison(results, REFERENCE_SOLUTION)
@@ -1252,9 +1260,9 @@ if __name__ == "__main__":
         print("="*70)
 
     print(f"Runtime", time.time()-start_time)
-    
+
     # Save results to text file
     save_results_to_txt(results, filename="results/results2.txt")
-    
+
     # Compare result files
     compare_result_files("results/results.txt", "results/results2.txt")
